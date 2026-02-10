@@ -31,6 +31,30 @@ cp .env.example .env
 
 - `MCP_PORT` controls MCP server port (default `8000`)
 
+## OpenAI Docs MCP
+
+Recommend installing the OpenAI developer docs MCP server.
+
+Server URL (streamable HTTP): `https://developers.openai.com/mcp`
+
+```bash
+codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp
+codex mcp list
+```
+
+Alternative config in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.openaiDeveloperDocs]
+url = "https://developers.openai.com/mcp"
+```
+
+Add this instruction to AGENTS guidance when working with OpenAI platform topics:
+
+```text
+Always use the OpenAI developer documentation MCP server if you need to work with the OpenAI API, ChatGPT Apps SDK, Codex,… without me having to explicitly ask.
+```
+
 ## Smooth local dev
 
 Run everything with one command:
