@@ -1,0 +1,3 @@
+interface:
+  display_name: "ChatGPT App MCP Builder"
+  short_description: "Auth, connector setup, and config-based ChatGPT testing"
