@@ -17,6 +17,15 @@ type PromptContext = {
   parent_relationship: string;
   school_name: string;
   teacher_role: string;
+  call_reason_summary: string;
+  call_context_from_chat: string;
+  call_absence_stats: string;
+};
+
+type RuntimeCallPromptContext = {
+  reasonSummary?: string | null;
+  contextFromChat?: string | null;
+  absenceStats?: string | null;
 };
 
 function trimOrDefault(rawValue: string | undefined, fallback: string): string {
@@ -24,7 +33,18 @@ function trimOrDefault(rawValue: string | undefined, fallback: string): string {
   return trimmed && trimmed.length > 0 ? trimmed : fallback;
 }
 
-function resolvePromptContext(): PromptContext {
+function normalizeRuntimePromptValue(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed.length === 0) {
+    return fallback;
+  }
+  return trimmed;
+}
+
+function resolvePromptContext(runtimeContext?: RuntimeCallPromptContext): PromptContext {
   return {
     student_name: trimOrDefault(process.env.CALL_STUDENT_NAME, DEFAULT_STUDENT_NAME),
     parent_name: trimOrDefault(process.env.CALL_PARENT_NAME, DEFAULT_PARENT_NAME),
@@ -34,6 +54,18 @@ function resolvePromptContext(): PromptContext {
     ),
     school_name: trimOrDefault(process.env.CALL_SCHOOL_NAME, DEFAULT_SCHOOL_NAME),
     teacher_role: trimOrDefault(process.env.CALL_TEACHER_ROLE, DEFAULT_TEACHER_ROLE),
+    call_reason_summary: normalizeRuntimePromptValue(
+      runtimeContext?.reasonSummary,
+      "Attendance follow-up call about persistent absence.",
+    ),
+    call_context_from_chat: normalizeRuntimePromptValue(
+      runtimeContext?.contextFromChat,
+      "No additional context from the chat thread.",
+    ),
+    call_absence_stats: normalizeRuntimePromptValue(
+      runtimeContext?.absenceStats,
+      "No absence statistics were provided.",
+    ),
   };
 }
 
@@ -53,9 +85,9 @@ function renderJinjaVariables(template: string, context: PromptContext): string 
   });
 }
 
-export function getRealtimeSystemPrompt(): string {
+export function getRealtimeSystemPrompt(runtimeContext?: RuntimeCallPromptContext): string {
   const templatePath = resolveTemplatePath();
-  const context = resolvePromptContext();
+  const context = resolvePromptContext(runtimeContext);
 
   try {
     const template = fs.readFileSync(templatePath, "utf8");

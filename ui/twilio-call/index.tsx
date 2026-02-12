@@ -29,6 +29,9 @@ type WidgetToolOutput = {
   parentName: string;
   parentRelationship: string;
   parentNumberLabel: string;
+  reasonSummary?: string;
+  contextFromChat?: string | null;
+  absenceStats?: string | null;
   status: CallStatus;
   logsWsUrl: string | null;
   viewerToken?: string | null;
@@ -72,6 +75,9 @@ type CallWidgetState = {
   parentName: string;
   parentRelationship: string;
   parentNumberLabel: string;
+  reasonSummary: string;
+  contextFromChat: string | null;
+  absenceStats: string | null;
   waveHistory: number[];
   callSummary: CallSummaryOutput | null;
   summaryLoading: boolean;
@@ -121,6 +127,7 @@ const DEFAULT_STUDENT_NAME = "Sam";
 const DEFAULT_PARENT_NAME = "Jerry";
 const DEFAULT_PARENT_RELATIONSHIP = "father";
 const DEFAULT_PARENT_NUMBER_LABEL = "Jerry's number on file";
+const DEFAULT_REASON_SUMMARY = "Attendance follow-up call about recent absences.";
 const WAVE_BAR_COUNT = 28;
 const EMPTY_WAVE_HISTORY = Array.from({ length: WAVE_BAR_COUNT }, () => 0);
 
@@ -131,6 +138,9 @@ const DEFAULT_TOOL_OUTPUT: WidgetToolOutput = {
   parentName: DEFAULT_PARENT_NAME,
   parentRelationship: DEFAULT_PARENT_RELATIONSHIP,
   parentNumberLabel: DEFAULT_PARENT_NUMBER_LABEL,
+  reasonSummary: DEFAULT_REASON_SUMMARY,
+  contextFromChat: null,
+  absenceStats: null,
   status: "ready",
   logsWsUrl: null,
   viewerToken: null,
@@ -244,6 +254,9 @@ function parseCallStartPayload(value: unknown): WidgetToolOutput | null {
     asString(candidate.parentRelationship) ?? DEFAULT_PARENT_RELATIONSHIP;
   const parentNumberLabel =
     asString(candidate.parentNumberLabel) ?? displayNumber ?? DEFAULT_PARENT_NUMBER_LABEL;
+  const reasonSummary = asString(candidate.reasonSummary) ?? DEFAULT_REASON_SUMMARY;
+  const contextFromChat = asString(candidate.contextFromChat) ?? null;
+  const absenceStats = asString(candidate.absenceStats) ?? null;
 
   return {
     sessionId,
@@ -252,6 +265,9 @@ function parseCallStartPayload(value: unknown): WidgetToolOutput | null {
     parentName,
     parentRelationship,
     parentNumberLabel,
+    reasonSummary,
+    contextFromChat,
+    absenceStats,
     status,
     logsWsUrl,
     viewerToken,
@@ -564,6 +580,9 @@ function App() {
     parentName: toolOutput.parentName ?? DEFAULT_PARENT_NAME,
     parentRelationship: toolOutput.parentRelationship ?? DEFAULT_PARENT_RELATIONSHIP,
     parentNumberLabel: toolOutput.parentNumberLabel ?? toolOutput.displayNumber,
+    reasonSummary: toolOutput.reasonSummary ?? DEFAULT_REASON_SUMMARY,
+    contextFromChat: toolOutput.contextFromChat ?? null,
+    absenceStats: toolOutput.absenceStats ?? null,
     waveHistory: createEmptyWaveHistory(),
     callSummary: null,
     summaryLoading: false,
@@ -586,6 +605,9 @@ function App() {
       parentRelationship: toolOutput.parentRelationship ?? DEFAULT_PARENT_RELATIONSHIP,
       parentNumberLabel:
         toolOutput.parentNumberLabel ?? toolOutput.displayNumber ?? DEFAULT_PARENT_NUMBER_LABEL,
+      reasonSummary: toolOutput.reasonSummary ?? DEFAULT_REASON_SUMMARY,
+      contextFromChat: toolOutput.contextFromChat ?? null,
+      absenceStats: toolOutput.absenceStats ?? null,
       waveHistory: createEmptyWaveHistory(),
       callSummary: null,
       summaryLoading: false,
@@ -829,7 +851,11 @@ function App() {
     }));
 
     try {
-      const result = await window.openai?.callTool?.("initiate-call", {});
+      const result = await window.openai?.callTool?.("initiate-call", {
+        reasonSummary: effectiveState.reasonSummary,
+        contextFromChat: effectiveState.contextFromChat ?? undefined,
+        absenceStats: effectiveState.absenceStats ?? undefined,
+      });
       const parsed = parseCallStartPayload(result);
 
       if (!parsed) {
@@ -852,6 +878,9 @@ function App() {
           parentName: parsed.parentName,
           parentRelationship: parsed.parentRelationship,
           parentNumberLabel: parsed.parentNumberLabel,
+          reasonSummary: parsed.reasonSummary ?? base.reasonSummary,
+          contextFromChat: parsed.contextFromChat ?? base.contextFromChat,
+          absenceStats: parsed.absenceStats ?? base.absenceStats,
           waveHistory: createEmptyWaveHistory(),
           callSummary: null,
           summaryLoading: false,
@@ -870,7 +899,12 @@ function App() {
         isConnecting: false,
       }));
     }
-  }, [setWidgetState]);
+  }, [
+    effectiveState.absenceStats,
+    effectiveState.contextFromChat,
+    effectiveState.reasonSummary,
+    setWidgetState,
+  ]);
 
   const canStartCall = useMemo(
     () =>
@@ -899,7 +933,7 @@ function App() {
           </div>
         </div>
 
-        <div className="twilio-profile-panel rounded-xl border border-slate-900/10 bg-white/90 p-3 flex gap-3 items-center">
+        <div className="twilio-profile-panel rounded-xl border border-slate-900/10 bg-white/90 p-3 flex gap-3 items-start">
           <img
             src={samPortrait}
             alt={`${effectiveState.studentName} student profile`}
@@ -913,6 +947,22 @@ function App() {
               {effectiveState.parentName} ({prettyRelationship(effectiveState.parentRelationship)})
             </div>
             <div className="text-xs text-slate-600 truncate">Calling: {effectiveState.parentNumberLabel}</div>
+            <div className="mt-2 rounded-lg border border-slate-900/10 bg-slate-50/90 p-2 text-xs text-slate-700 space-y-1">
+              <div className="uppercase tracking-wide text-[10px] text-slate-500">Call Brief</div>
+              <p className="leading-relaxed text-slate-800">{effectiveState.reasonSummary}</p>
+              {effectiveState.contextFromChat && (
+                <p className="leading-relaxed">
+                  <span className="font-semibold text-slate-700">Context:</span>{" "}
+                  {effectiveState.contextFromChat}
+                </p>
+              )}
+              {effectiveState.absenceStats && (
+                <p className="leading-relaxed">
+                  <span className="font-semibold text-slate-700">Absence stats:</span>{" "}
+                  {effectiveState.absenceStats}
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -67,6 +67,12 @@ export type TranscriptItem = {
   order: number;
 };
 
+export type CallBrief = {
+  reasonSummary: string;
+  contextFromChat: string | null;
+  absenceStats: string | null;
+};
+
 type LogSubscriber = {
   id: string;
   socket: LogSocket;
@@ -84,6 +90,7 @@ export type CallSession = {
   logSubscribers: Map<string, LogSubscriber>;
   logEvents: CallLogEvent[];
   terminalReason: string | null;
+  callBrief: CallBrief;
 };
 
 type CallLogEventInput =
@@ -301,7 +308,9 @@ function upsertTranscriptItem(
   return created;
 }
 
-export function createCallSession(): CallSession {
+export function createCallSession(options?: {
+  callBrief?: CallBrief;
+}): CallSession {
   const createdAt = nowIso();
   const session: CallSession = {
     sessionId: randomId("call"),
@@ -315,6 +324,11 @@ export function createCallSession(): CallSession {
     logSubscribers: new Map<string, LogSubscriber>(),
     logEvents: [],
     terminalReason: null,
+    callBrief: options?.callBrief ?? {
+      reasonSummary: "Attendance follow-up call",
+      contextFromChat: null,
+      absenceStats: null,
+    },
   };
 
   callSessions.set(session.sessionId, session);
@@ -582,6 +596,7 @@ export function getCallSessionSummary(sessionId: string): {
   endedAt: string | null;
   terminalReason: string | null;
   lastSeq: number;
+  callBrief: CallBrief;
   transcript: TranscriptItem[];
 } | null {
   const session = callSessions.get(sessionId);
@@ -604,6 +619,7 @@ export function getCallSessionSummary(sessionId: string): {
     endedAt: session.endedAt,
     terminalReason: session.terminalReason,
     lastSeq: session.seq,
+    callBrief: session.callBrief,
     transcript,
   };
 }

@@ -12,6 +12,7 @@ import {
   subscribeToCallLogs,
   unsubscribeFromCallLogs,
   updateCallStatus,
+  type CallBrief,
   type CallStatus,
   type LogSocket,
 } from "./call-session-store";
@@ -32,6 +33,7 @@ const DEFAULT_PARENT_NAME = "Jerry";
 const DEFAULT_PARENT_RELATIONSHIP = "father";
 const DEFAULT_PARENT_NUMBER_LABEL = "Parent number on file";
 const DEFAULT_SUMMARY_MODEL = "gpt-4.1";
+const DEFAULT_CALL_REASON_SUMMARY = "Attendance follow-up call about repeated absences.";
 
 function trimOrDefault(value: string | undefined, fallback: string): string {
   const trimmed = value?.trim();
@@ -103,12 +105,21 @@ type CallStartResult = {
   parentName: string;
   parentRelationship: string;
   parentNumberLabel: string;
+  reasonSummary: string;
+  contextFromChat: string | null;
+  absenceStats: string | null;
   status: "queued" | "ringing" | "in-progress" | "failed";
   logsWsUrl: string;
   viewerToken: string;
   reconnectSinceSeq: number;
   callSid: string | null;
   errorMessage?: string;
+};
+
+type CallBriefInput = {
+  reasonSummary?: string | null;
+  contextFromChat?: string | null;
+  absenceStats?: string | null;
 };
 
 type AttendanceRisk = "low" | "medium" | "high" | "unknown";
@@ -119,6 +130,9 @@ type CallSummaryResult = {
   startedAt: string;
   endedAt: string | null;
   terminalReason: string | null;
+  reasonSummary: string;
+  contextFromChat: string | null;
+  absenceStats: string | null;
   summary: string;
   keyPoints: string[];
   actionItems: string[];
@@ -341,6 +355,7 @@ function callStartPayload(
   status: CallStartResult["status"],
   viewerToken: string,
   callSid: string | null,
+  callBrief: CallBrief,
   errorMessage?: string,
 ): CallStartResult {
   const context = getTeacherCallContext();
@@ -351,6 +366,9 @@ function callStartPayload(
     parentName: context.parentName,
     parentRelationship: context.parentRelationship,
     parentNumberLabel: context.parentNumberLabel,
+    reasonSummary: callBrief.reasonSummary,
+    contextFromChat: callBrief.contextFromChat,
+    absenceStats: callBrief.absenceStats,
     status,
     logsWsUrl: `${toWsBaseUrl(getPublicBaseUrl())}/twilio/logs`,
     viewerToken,
@@ -419,6 +437,26 @@ function normalizeRisk(value: unknown): AttendanceRisk {
 
 function collapseWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function clampText(value: string | null | undefined, maxLength: number): string | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = collapseWhitespace(value);
+  if (normalized.length === 0) {
+    return null;
+  }
+  return normalized.length > maxLength ? normalized.slice(0, maxLength) : normalized;
+}
+
+function normalizeCallBrief(input?: CallBriefInput | null): CallBrief {
+  const reasonSummary = clampText(input?.reasonSummary, 280) ?? DEFAULT_CALL_REASON_SUMMARY;
+  return {
+    reasonSummary,
+    contextFromChat: clampText(input?.contextFromChat, 1400),
+    absenceStats: clampText(input?.absenceStats, 700),
+  };
 }
 
 function extractResponseOutputText(payload: Record<string, unknown>): string | null {
@@ -542,7 +580,19 @@ function buildHeuristicSummary(params: {
   parentName: string;
   parentRelationship: string;
   studentName: string;
-}): Omit<CallSummaryResult, "sessionId" | "startedAt" | "endedAt" | "terminalReason" | "generatedAt" | "transcriptItems" | "source"> {
+}): Omit<
+  CallSummaryResult,
+  | "sessionId"
+  | "startedAt"
+  | "endedAt"
+  | "terminalReason"
+  | "generatedAt"
+  | "transcriptItems"
+  | "source"
+  | "reasonSummary"
+  | "contextFromChat"
+  | "absenceStats"
+> {
   const recipientLines = params.transcript
     .filter((line) => line.speaker === "recipient")
     .map((line) => collapseWhitespace(line.text))
@@ -741,18 +791,26 @@ async function generateSummaryFromOpenAi(params: {
   };
 }
 
-export function getTwilioCallPanelOutput(): {
+export function getTwilioCallPanelOutput(input: {
+  reasonSummary: string;
+  contextFromChat?: string | null;
+  absenceStats?: string | null;
+}): {
   sessionId: null;
   displayNumber: string;
   studentName: string;
   parentName: string;
   parentRelationship: string;
   parentNumberLabel: string;
+  reasonSummary: string;
+  contextFromChat: string | null;
+  absenceStats: string | null;
   status: "ready";
   logsWsUrl: string;
   reconnectSinceSeq: 0;
 } {
   const context = getTeacherCallContext();
+  const callBrief = normalizeCallBrief(input);
   return {
     sessionId: null,
     displayNumber: context.parentNumberLabel,
@@ -760,6 +818,9 @@ export function getTwilioCallPanelOutput(): {
     parentName: context.parentName,
     parentRelationship: context.parentRelationship,
     parentNumberLabel: context.parentNumberLabel,
+    reasonSummary: callBrief.reasonSummary,
+    contextFromChat: callBrief.contextFromChat,
+    absenceStats: callBrief.absenceStats,
     status: "ready",
     logsWsUrl: `${toWsBaseUrl(getPublicBaseUrl())}/twilio/logs`,
     reconnectSinceSeq: 0,
@@ -774,6 +835,9 @@ export function getTwilioCallStatusOutput(sessionId: string): {
   parentName: string;
   parentRelationship: string;
   parentNumberLabel: string;
+  reasonSummary: string;
+  contextFromChat: string | null;
+  absenceStats: string | null;
   status: CallStatus;
   startedAt: string;
   endedAt: string | null;
@@ -803,6 +867,9 @@ export function getTwilioCallStatusOutput(sessionId: string): {
     parentName: context.parentName,
     parentRelationship: context.parentRelationship,
     parentNumberLabel: context.parentNumberLabel,
+    reasonSummary: summary.callBrief.reasonSummary,
+    contextFromChat: summary.callBrief.contextFromChat,
+    absenceStats: summary.callBrief.absenceStats,
     status: summary.status,
     startedAt: summary.startedAt,
     endedAt: summary.endedAt,
@@ -850,12 +917,27 @@ export async function getTwilioCallSummaryOutput(
     })
     .join("\n");
 
+  const briefingPromptLines = [
+    `Reason for call: ${summary.callBrief.reasonSummary}`,
+    summary.callBrief.contextFromChat
+      ? `Context from teacher/chat: ${summary.callBrief.contextFromChat}`
+      : null,
+    summary.callBrief.absenceStats
+      ? `Known absence statistics: ${summary.callBrief.absenceStats}`
+      : null,
+  ].filter((line): line is string => Boolean(line));
+
+  const summaryTranscriptPrompt =
+    briefingPromptLines.length > 0
+      ? `${briefingPromptLines.join("\n")}\n\nTranscript:\n${transcriptPrompt}`
+      : transcriptPrompt;
+
   const summaryModel = process.env.OPENAI_SUMMARY_MODEL?.trim() || DEFAULT_SUMMARY_MODEL;
   const openAiSummary =
     transcriptPrompt.length > 0
       ? await generateSummaryFromOpenAi({
           model: summaryModel,
-          transcriptPrompt,
+          transcriptPrompt: summaryTranscriptPrompt,
           parentName: context.parentName,
           parentRelationship: context.parentRelationship,
           studentName: context.studentName,
@@ -877,6 +959,9 @@ export async function getTwilioCallSummaryOutput(
     startedAt: summary.startedAt,
     endedAt: summary.endedAt,
     terminalReason: summary.terminalReason,
+    reasonSummary: summary.callBrief.reasonSummary,
+    contextFromChat: summary.callBrief.contextFromChat,
+    absenceStats: summary.callBrief.absenceStats,
     studentName: context.studentName,
     parentName: context.parentName,
     parentRelationship: context.parentRelationship,
@@ -903,11 +988,15 @@ export async function getTwilioCallSummaryOutput(
   return result;
 }
 
-export async function startTwilioOutboundCall(): Promise<CallStartResult> {
-  const session = createCallSession();
+export async function startTwilioOutboundCall(input?: CallBriefInput): Promise<CallStartResult> {
+  const callBrief = normalizeCallBrief(input);
+  const session = createCallSession({ callBrief });
   const viewerToken = createViewerToken(session.sessionId);
   logInfo("Created call session", {
     sessionId: session.sessionId,
+    reasonSummary: callBrief.reasonSummary,
+    hasContextFromChat: Boolean(callBrief.contextFromChat),
+    hasAbsenceStats: Boolean(callBrief.absenceStats),
   });
 
   const config = getTwilioConfig();
@@ -922,6 +1011,7 @@ export async function startTwilioOutboundCall(): Promise<CallStartResult> {
       "failed",
       viewerToken,
       session.callSid,
+      callBrief,
       config.error,
     );
   }
@@ -941,6 +1031,7 @@ export async function startTwilioOutboundCall(): Promise<CallStartResult> {
       "failed",
       viewerToken,
       session.callSid,
+      callBrief,
       message,
     );
   }
@@ -990,6 +1081,7 @@ export async function startTwilioOutboundCall(): Promise<CallStartResult> {
       status === "failed" || status === "completed" ? "queued" : status,
       viewerToken,
       callSid,
+      callBrief,
     );
   } catch (error) {
     const details = describeError(error);
@@ -1009,6 +1101,7 @@ export async function startTwilioOutboundCall(): Promise<CallStartResult> {
       "failed",
       viewerToken,
       session.callSid,
+      callBrief,
       errorMessage,
     );
   }

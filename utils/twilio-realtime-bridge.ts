@@ -197,7 +197,12 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
 
   const realtimeModel = process.env.OPENAI_REALTIME_MODEL?.trim() || DEFAULT_REALTIME_MODEL;
   const realtimeVoice = process.env.OPENAI_REALTIME_VOICE?.trim() || DEFAULT_REALTIME_VOICE;
-  const realtimePrompt = getRealtimeSystemPrompt();
+  const callBrief = getCallSession(options.sessionId)?.callBrief ?? null;
+  const realtimePrompt = getRealtimeSystemPrompt({
+    reasonSummary: callBrief?.reasonSummary,
+    contextFromChat: callBrief?.contextFromChat,
+    absenceStats: callBrief?.absenceStats,
+  });
   const transcriptionModel =
     process.env.OPENAI_REALTIME_TRANSCRIPTION_MODEL?.trim() ||
     DEFAULT_TRANSCRIPTION_MODEL;
@@ -234,6 +239,7 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
     realtimeModel,
     realtimeVoice,
     transcriptionModel,
+    hasCallBriefContext: Boolean(callBrief),
   });
 
   const closeRealtime = () => {
@@ -296,6 +302,7 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
             },
             transcription: {
               model: transcriptionModel,
+              language: "en",
             },
           },
           output: {
