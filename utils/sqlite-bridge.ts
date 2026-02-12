@@ -165,6 +165,7 @@ def _execute(sqlite_file: str, sql: str, parameters: dict | None, write: bool = 
         f"file:{sqlite_file}?mode={'rw' if write else 'ro'}", uri=True
     )
     try:
+        connection.execute("PRAGMA foreign_keys = ON")
         cursor = connection.execute(sql, args)
         if cursor.description is None:
             if write:
