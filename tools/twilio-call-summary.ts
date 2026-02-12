@@ -7,11 +7,11 @@ const twilioCallSummaryInput = z.object({
   sessionId: z
     .string()
     .min(1)
-    .describe("Call session id returned by twilio-call-start."),
+    .describe("Call session id returned by initiate-call."),
 });
 
 export default defineTool({
-  name: "twilio-call-summary",
+  name: "summarise-call",
   title: "Summarize Parent Call",
   description:
     "Generate a concise attendance follow-up summary and action items from the parent call transcript.",
@@ -25,13 +25,13 @@ export default defineTool({
   invoking: "Summarizing call",
   invoked: "Summary ready",
   async handler(input) {
-    logInfo("Tool invoked: twilio-call-summary", {
+    logInfo("Tool invoked: summarise-call", {
       sessionId: input.sessionId,
     });
 
     const summary = await getTwilioCallSummaryOutput(input.sessionId);
     if (!summary) {
-      logWarn("Tool result: twilio-call-summary session not found", {
+      logWarn("Tool result: summarise-call session not found", {
         sessionId: input.sessionId,
       });
       return {
@@ -48,7 +48,7 @@ export default defineTool({
       };
     }
 
-    logInfo("Tool completed: twilio-call-summary", {
+    logInfo("Tool completed: summarise-call", {
       sessionId: input.sessionId,
       status: summary.status,
       source: summary.source,

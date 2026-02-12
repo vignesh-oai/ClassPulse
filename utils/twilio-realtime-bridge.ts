@@ -24,7 +24,7 @@ const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 const WS_OPEN = 1;
 const WS_CONNECTING = 0;
 const PCMU_MAX_ABS_SAMPLE = 32124;
-const AUDIO_LEVEL_SAMPLE_EVERY_FRAMES = 4;
+const AUDIO_LEVEL_SAMPLE_EVERY_FRAMES = 8;
 
 type BridgeSocket = {
   readyState: number;

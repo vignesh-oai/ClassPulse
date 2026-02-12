@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { createRoot } from "react-dom/client";
-import { Button } from "@openai/apps-sdk-ui/components/Button";
+import {
+  Activity,
+  AlertCircle,
+  CheckCircle2,
+  FileText,
+  Loader2,
+  MessageSquareText,
+  PhoneCall,
+} from "lucide-react";
 import { useWidgetProps } from "../hooks/use-widget-props";
 import { useWidgetState } from "../hooks/use-widget-state";
 import samPortrait from "./sam-schoolgirl.png";
@@ -28,6 +36,20 @@ type WidgetToolOutput = {
   errorMessage?: string;
 };
 
+type AttendanceRisk = "low" | "medium" | "high" | "unknown";
+
+type CallSummaryOutput = {
+  sessionId: string;
+  status: CallStatus;
+  summary: string;
+  keyPoints: string[];
+  actionItems: string[];
+  attendanceRisk: AttendanceRisk;
+  source: "openai" | "heuristic";
+  generatedAt: string;
+  transcriptItems: number;
+};
+
 type TranscriptLine = {
   itemId: string;
   speaker: "recipient" | "assistant";
@@ -50,6 +72,10 @@ type CallWidgetState = {
   parentName: string;
   parentRelationship: string;
   parentNumberLabel: string;
+  waveHistory: number[];
+  callSummary: CallSummaryOutput | null;
+  summaryLoading: boolean;
+  summaryError: string | null;
 };
 
 type CallLogEvent =
@@ -82,12 +108,21 @@ type CallLogEvent =
       seq: number;
       reason: string;
       timestamp: string;
+    }
+  | {
+      type: "audio.level";
+      seq: number;
+      speaker: "recipient" | "assistant";
+      level: number;
+      timestamp: string;
     };
 
 const DEFAULT_STUDENT_NAME = "Sam";
 const DEFAULT_PARENT_NAME = "Jerry";
 const DEFAULT_PARENT_RELATIONSHIP = "father";
 const DEFAULT_PARENT_NUMBER_LABEL = "Jerry's number on file";
+const WAVE_BAR_COUNT = 28;
+const EMPTY_WAVE_HISTORY = Array.from({ length: WAVE_BAR_COUNT }, () => 0);
 
 const DEFAULT_TOOL_OUTPUT: WidgetToolOutput = {
   sessionId: null,
@@ -101,6 +136,10 @@ const DEFAULT_TOOL_OUTPUT: WidgetToolOutput = {
   viewerToken: null,
   reconnectSinceSeq: 0,
 };
+
+function createEmptyWaveHistory(): number[] {
+  return [...EMPTY_WAVE_HISTORY];
+}
 
 function isTerminalStatus(status: CallStatus): boolean {
   return status === "completed" || status === "failed";
@@ -120,6 +159,15 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter((entry) => entry.length > 0);
+}
+
 function asStatus(value: unknown): CallStatus | null {
   if (
     value === "ready" ||
@@ -128,6 +176,18 @@ function asStatus(value: unknown): CallStatus | null {
     value === "in-progress" ||
     value === "completed" ||
     value === "failed"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function asAttendanceRisk(value: unknown): AttendanceRisk | null {
+  if (
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "unknown"
   ) {
     return value;
   }
@@ -200,6 +260,59 @@ function parseCallStartPayload(value: unknown): WidgetToolOutput | null {
   };
 }
 
+function parseCallSummaryPayload(value: unknown): CallSummaryOutput | null {
+  const fromRoot = asRecord(value);
+  const structuredContent = asRecord(fromRoot?.structuredContent);
+  let candidate = structuredContent ?? fromRoot;
+
+  if (!candidate) {
+    return null;
+  }
+
+  const maybeResultString = asString(candidate.result);
+  if (maybeResultString) {
+    try {
+      const parsedResult = JSON.parse(maybeResultString) as Record<string, unknown>;
+      candidate = asRecord(parsedResult) ?? candidate;
+    } catch {
+      // Keep original candidate if result is plain text.
+    }
+  }
+
+  const found = candidate.found;
+  if (found === false) {
+    return null;
+  }
+
+  const sessionId = asString(candidate.sessionId);
+  const status = asStatus(candidate.status);
+  const summary = asString(candidate.summary);
+  const risk = asAttendanceRisk(candidate.attendanceRisk);
+  const source = candidate.source;
+
+  if (
+    !sessionId ||
+    !status ||
+    !summary ||
+    !risk ||
+    (source !== "openai" && source !== "heuristic")
+  ) {
+    return null;
+  }
+
+  return {
+    sessionId,
+    status,
+    summary,
+    keyPoints: asStringArray(candidate.keyPoints),
+    actionItems: asStringArray(candidate.actionItems),
+    attendanceRisk: risk,
+    source,
+    generatedAt: asString(candidate.generatedAt) ?? new Date().toISOString(),
+    transcriptItems: asNumber(candidate.transcriptItems) ?? 0,
+  };
+}
+
 function parseLogEvent(raw: string): CallLogEvent | null {
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -260,6 +373,24 @@ function parseLogEvent(raw: string): CallLogEvent | null {
       };
     }
 
+    if (eventType === "audio.level") {
+      const speaker = asString(parsed.speaker);
+      const level = asNumber(parsed.level);
+      if (
+        (speaker !== "recipient" && speaker !== "assistant") ||
+        level == null
+      ) {
+        return null;
+      }
+      return {
+        type: "audio.level",
+        seq,
+        speaker,
+        level: Math.max(0, Math.min(1, level)),
+        timestamp: asString(parsed.timestamp) ?? new Date().toISOString(),
+      };
+    }
+
     if (eventType === "session.end") {
       return {
         type: "session.end",
@@ -282,6 +413,21 @@ function sortTranscript(lines: TranscriptLine[]): TranscriptLine[] {
     }
     return left.seq - right.seq;
   });
+}
+
+function pushWaveLevel(history: number[], nextLevel: number): number[] {
+  const clamped = Math.max(0, Math.min(1, nextLevel));
+  const combined = [...history, clamped];
+  if (combined.length <= WAVE_BAR_COUNT) {
+    return combined;
+  }
+  return combined.slice(combined.length - WAVE_BAR_COUNT);
+}
+
+function transcriptFallbackLevel(text: string, isFinal: boolean): number {
+  const normalizedLength = Math.min(1, text.trim().length / 48);
+  const base = isFinal ? 0.26 : 0.18;
+  return Math.min(1, base + normalizedLength * 0.68);
 }
 
 function applyLogEvent(state: CallWidgetState, event: CallLogEvent): CallWidgetState {
@@ -307,10 +453,20 @@ function applyLogEvent(state: CallWidgetState, event: CallLogEvent): CallWidgetS
     };
   }
 
+  if (event.type === "audio.level") {
+    return {
+      ...state,
+      waveHistory: pushWaveLevel(state.waveHistory, event.level),
+      lastSeq: event.seq,
+      isConnecting: false,
+    };
+  }
+
   const updatedTranscript = [...state.transcript];
   const existingIndex = updatedTranscript.findIndex(
     (line) => line.itemId === event.itemId && line.speaker === event.speaker,
   );
+  let fallbackLevel = 0;
 
   if (event.type === "transcript.delta") {
     if (existingIndex >= 0) {
@@ -332,6 +488,7 @@ function applyLogEvent(state: CallWidgetState, event: CallLogEvent): CallWidgetS
         order: event.order ?? updatedTranscript.length,
       });
     }
+    fallbackLevel = transcriptFallbackLevel(event.textDelta, false);
   }
 
   if (event.type === "transcript.final") {
@@ -354,11 +511,13 @@ function applyLogEvent(state: CallWidgetState, event: CallLogEvent): CallWidgetS
         order: event.order ?? updatedTranscript.length,
       });
     }
+    fallbackLevel = transcriptFallbackLevel(event.fullText, true);
   }
 
   return {
     ...state,
     transcript: sortTranscript(updatedTranscript),
+    waveHistory: pushWaveLevel(state.waveHistory, fallbackLevel),
     lastSeq: event.seq,
     isConnecting: false,
   };
@@ -405,6 +564,10 @@ function App() {
     parentName: toolOutput.parentName ?? DEFAULT_PARENT_NAME,
     parentRelationship: toolOutput.parentRelationship ?? DEFAULT_PARENT_RELATIONSHIP,
     parentNumberLabel: toolOutput.parentNumberLabel ?? toolOutput.displayNumber,
+    waveHistory: createEmptyWaveHistory(),
+    callSummary: null,
+    summaryLoading: false,
+    summaryError: null,
   }));
 
   const effectiveState =
@@ -423,9 +586,11 @@ function App() {
       parentRelationship: toolOutput.parentRelationship ?? DEFAULT_PARENT_RELATIONSHIP,
       parentNumberLabel:
         toolOutput.parentNumberLabel ?? toolOutput.displayNumber ?? DEFAULT_PARENT_NUMBER_LABEL,
+      waveHistory: createEmptyWaveHistory(),
+      callSummary: null,
+      summaryLoading: false,
+      summaryError: null,
     } as CallWidgetState);
-
-  const [waveStep, setWaveStep] = useState(0);
 
   const sessionId = effectiveState.sessionId;
   const logsWsUrl = effectiveState.logsWsUrl;
@@ -438,6 +603,7 @@ function App() {
   const lastSeqRef = useRef(effectiveState.lastSeq);
   const statusRef = useRef<CallStatus>(effectiveState.status);
   const stateRef = useRef<CallWidgetState>(effectiveState);
+  const summaryRequestedSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     lastSeqRef.current = effectiveState.lastSeq;
@@ -445,40 +611,18 @@ function App() {
     stateRef.current = effectiveState;
   }, [effectiveState]);
 
-  useEffect(() => {
-    const intervalMs =
-      effectiveState.status === "in-progress"
-        ? 120
-        : effectiveState.isConnecting || effectiveState.status === "ringing"
-          ? 170
-          : 280;
-
-    const timer = window.setInterval(() => {
-      setWaveStep((current) => current + 1);
-    }, intervalMs);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [effectiveState.isConnecting, effectiveState.status]);
-
   const waveBars = useMemo(() => {
-    const isActive =
-      effectiveState.status === "in-progress" ||
-      effectiveState.status === "ringing" ||
-      effectiveState.isConnecting;
-    const transcriptIntensity = Math.min(1, effectiveState.transcript.length / 8);
-    const base = isActive ? 0.18 : 0.06;
-
-    return Array.from({ length: 24 }, (_, index) => {
-      const phase = waveStep * 0.45 + index * 0.87 + effectiveState.lastSeq * 0.16;
-      const primary = (Math.sin(phase) + 1) / 2;
-      const secondary = (Math.cos(phase * 1.7) + 1) / 2;
-      const pulse = (Math.sin((effectiveState.lastSeq + index) * 0.55) + 1) / 2;
-      const amplitude = base + primary * 0.42 + secondary * 0.23 + transcriptIntensity * 0.2 * pulse;
-      return Math.min(1, amplitude);
-    });
-  }, [effectiveState.isConnecting, effectiveState.lastSeq, effectiveState.status, effectiveState.transcript.length, waveStep]);
+    if (effectiveState.waveHistory.length >= WAVE_BAR_COUNT) {
+      return effectiveState.waveHistory;
+    }
+    return [
+      ...createEmptyWaveHistory().slice(
+        0,
+        WAVE_BAR_COUNT - effectiveState.waveHistory.length,
+      ),
+      ...effectiveState.waveHistory,
+    ];
+  }, [effectiveState.waveHistory]);
 
   const closeSocket = useCallback(() => {
     if (logsSocketRef.current) {
@@ -623,19 +767,73 @@ function App() {
     viewerToken,
   ]);
 
+  const requestCallSummary = useCallback(
+    async (targetSessionId: string) => {
+      setWidgetState((current) => ({
+        ...(current ?? stateRef.current),
+        summaryLoading: true,
+        summaryError: null,
+      }));
+
+      try {
+        const result = await window.openai?.callTool?.("summarise-call", {
+          sessionId: targetSessionId,
+        });
+        const parsedSummary = parseCallSummaryPayload(result);
+        if (!parsedSummary) {
+          throw new Error("Unable to parse summarise-call result.");
+        }
+
+        setWidgetState((current) => ({
+          ...(current ?? stateRef.current),
+          callSummary: parsedSummary,
+          summaryLoading: false,
+          summaryError: null,
+        }));
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Summary generation failed with an unknown error.";
+        setWidgetState((current) => ({
+          ...(current ?? stateRef.current),
+          summaryLoading: false,
+          summaryError: message,
+        }));
+      }
+    },
+    [setWidgetState],
+  );
+
+  useEffect(() => {
+    if (!sessionId || !isTerminalStatus(effectiveState.status)) {
+      return;
+    }
+    if (summaryRequestedSessionRef.current === sessionId) {
+      return;
+    }
+    summaryRequestedSessionRef.current = sessionId;
+    void requestCallSummary(sessionId);
+  }, [effectiveState.status, requestCallSummary, sessionId]);
+
   const onStartCall = useCallback(async () => {
+    summaryRequestedSessionRef.current = null;
     setWidgetState((current) => ({
       ...(current ?? stateRef.current),
       isConnecting: true,
       errorMessage: null,
+      callSummary: null,
+      summaryLoading: false,
+      summaryError: null,
+      waveHistory: createEmptyWaveHistory(),
     }));
 
     try {
-      const result = await window.openai?.callTool?.("twilio-call-start", {});
+      const result = await window.openai?.callTool?.("initiate-call", {});
       const parsed = parseCallStartPayload(result);
 
       if (!parsed) {
-        throw new Error("Unable to parse twilio-call-start result.");
+        throw new Error("Unable to parse initiate-call result.");
       }
 
       setWidgetState((current) => {
@@ -654,6 +852,10 @@ function App() {
           parentName: parsed.parentName,
           parentRelationship: parsed.parentRelationship,
           parentNumberLabel: parsed.parentNumberLabel,
+          waveHistory: createEmptyWaveHistory(),
+          callSummary: null,
+          summaryLoading: false,
+          summaryError: null,
         };
       });
     } catch (error) {
@@ -715,42 +917,70 @@ function App() {
         </div>
       </div>
 
-      <div className="px-4 py-3 border-b border-slate-900/10 bg-white">
-        <Button
-          color="primary"
-          variant="solid"
-          disabled={!canStartCall}
-          onClick={() => void onStartCall()}
-          block
-        >
-          {effectiveState.isConnecting ? "Connecting..." : `Call ${effectiveState.parentName}`}
-        </Button>
+      <div className="twilio-action-panel px-4 py-3 border-b border-slate-900/10">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="twilio-call-icon-button"
+            disabled={!canStartCall}
+            aria-label={`Call ${effectiveState.parentName}`}
+            onClick={() => void onStartCall()}
+            title={canStartCall ? `Call ${effectiveState.parentName}` : "Call unavailable"}
+          >
+            {effectiveState.isConnecting ? (
+              <Loader2 className="h-5 w-5 twilio-spin" />
+            ) : (
+              <PhoneCall className="h-5 w-5" />
+            )}
+          </button>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-slate-900">
+              {effectiveState.isConnecting
+                ? "Connecting call..."
+                : isTerminalStatus(effectiveState.status)
+                  ? `Call ${effectiveState.status}`
+                  : `Call ${effectiveState.parentName}`}
+            </p>
+            <p className="text-xs text-slate-600">
+              {canStartCall
+                ? "Start attendance follow-up call"
+                : "Live updates appear automatically while the call is active."}
+            </p>
+          </div>
+        </div>
         {effectiveState.errorMessage && (
           <p className="mt-2 text-xs text-rose-700">{effectiveState.errorMessage}</p>
         )}
       </div>
 
-      <div className="px-4 py-3 border-b border-slate-900/10 bg-slate-50/80">
-        <div className="text-xs uppercase tracking-[0.15em] text-slate-500 mb-2">Live Interaction</div>
+      <div className="twilio-section px-4 py-3 border-b border-slate-900/10">
+        <div className="twilio-section-title">
+          <Activity className="h-4 w-4" />
+          <span>Live Interaction</span>
+        </div>
         <div className="twilio-wave-chart" aria-label="Live conversation activity waveform">
           {waveBars.map((amplitude, index) => (
             <span
               key={`wave-${index}`}
               className="twilio-wave-bar"
               style={{
-                height: `${Math.round(8 + amplitude * 40)}px`,
-                opacity: 0.4 + amplitude * 0.6,
+                height: `${Math.round(6 + amplitude * 42)}px`,
+                opacity: 0.28 + amplitude * 0.72,
               }}
             />
           ))}
         </div>
-        <p className="mt-2 text-xs text-slate-600">
-          Visual activity updates as the assistant and {effectiveState.parentName} exchange dialogue.
+        <p className="mt-2 text-xs text-slate-600 twilio-caption">
+          Real activity bars from live audio/transcript events between the assistant and{" "}
+          {effectiveState.parentName}.
         </p>
       </div>
 
-      <div className="px-4 py-3 bg-slate-50">
-        <div className="text-xs uppercase tracking-[0.15em] text-slate-500 mb-2">Live Transcript</div>
+      <div className="twilio-section px-4 py-3 border-b border-slate-900/10">
+        <div className="twilio-section-title">
+          <MessageSquareText className="h-4 w-4" />
+          <span>Live Transcript</span>
+        </div>
         <div className="twilio-call-transcript max-h-72 overflow-auto rounded-xl border border-slate-900/10 bg-white px-3 py-2 space-y-2">
           {effectiveState.transcript.length === 0 && (
             <p className="text-sm text-slate-500">
@@ -774,6 +1004,94 @@ function App() {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="twilio-section px-4 py-3 twilio-summary-section">
+        <div className="twilio-section-title">
+          <FileText className="h-4 w-4" />
+          <span>Call Summary</span>
+        </div>
+
+        {!isTerminalStatus(effectiveState.status) && (
+          <p className="text-sm text-slate-600">
+            Summary will generate automatically as soon as the call finishes.
+          </p>
+        )}
+
+        {effectiveState.summaryLoading && (
+          <div className="twilio-summary-loading">
+            <Loader2 className="h-4 w-4 twilio-spin" />
+            <span>Generating summary...</span>
+          </div>
+        )}
+
+        {effectiveState.callSummary && (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-900 leading-relaxed">
+              {effectiveState.callSummary.summary}
+            </p>
+
+            {effectiveState.callSummary.keyPoints.length > 0 && (
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
+                  Key Points
+                </div>
+                <ul className="space-y-1">
+                  {effectiveState.callSummary.keyPoints.map((point, index) => (
+                    <li key={`kp-${index}`} className="text-sm text-slate-800 twilio-list-row">
+                      <CheckCircle2 className="h-3.5 w-3.5 mt-0.5" />
+                      <span>{point}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {effectiveState.callSummary.actionItems.length > 0 && (
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
+                  Follow-up Actions
+                </div>
+                <ul className="space-y-1">
+                  {effectiveState.callSummary.actionItems.map((item, index) => (
+                    <li key={`action-${index}`} className="text-sm text-slate-800 twilio-list-row">
+                      <CheckCircle2 className="h-3.5 w-3.5 mt-0.5" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <p className="text-xs text-slate-500">
+              Risk: {effectiveState.callSummary.attendanceRisk} · Source:{" "}
+              {effectiveState.callSummary.source}
+            </p>
+          </div>
+        )}
+
+        {effectiveState.summaryError && (
+          <div className="twilio-summary-error">
+            <AlertCircle className="h-4 w-4 mt-0.5" />
+            <span>{effectiveState.summaryError}</span>
+          </div>
+        )}
+
+        {isTerminalStatus(effectiveState.status) &&
+          !effectiveState.summaryLoading &&
+          !effectiveState.callSummary &&
+          sessionId && (
+            <button
+              type="button"
+              className="twilio-secondary-button mt-2"
+              onClick={() => {
+                summaryRequestedSessionRef.current = sessionId;
+                void requestCallSummary(sessionId);
+              }}
+            >
+              Retry Summary
+            </button>
+          )}
       </div>
     </div>
   );

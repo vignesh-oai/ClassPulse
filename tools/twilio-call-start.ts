@@ -6,10 +6,10 @@ import { logInfo } from "../utils/call-debug";
 const twilioCallStartInput = z.object({});
 
 export default defineTool({
-  name: "twilio-call-start",
+  name: "initiate-call",
   title: "Start Parent Call",
   description:
-    "Start the attendance follow-up call to a student's parent and stream live transcript updates in the teacher widget.",
+    "Internal-only call launcher for the parent call widget. ChatGPT must never invoke this tool directly from user intent. When a user asks to make a phone call, call `call-parent` instead and let the widget trigger this tool.",
   annotations: {
     readOnlyHint: false,
     openWorldHint: true,
@@ -20,9 +20,9 @@ export default defineTool({
   invoking: "Starting call",
   invoked: "Call started",
   async handler() {
-    logInfo("Tool invoked: twilio-call-start");
+    logInfo("Tool invoked: initiate-call");
     const started = await startTwilioOutboundCall();
-    logInfo("Tool completed: twilio-call-start", {
+    logInfo("Tool completed: initiate-call", {
       sessionId: started.sessionId,
       status: started.status,
       callSid: started.callSid,

@@ -8,6 +8,10 @@ import tailwindcss from "@tailwindcss/vite";
 
 const entries = fg.sync("ui/**/index.{tsx,jsx}").sort();
 const outDir = "assets";
+const defaultBaseUrl = "http://localhost:8000/assets";
+const baseUrlCandidate = process.env.BASE_URL?.trim() ?? "";
+const baseUrlRaw = baseUrlCandidate.length > 0 ? baseUrlCandidate : defaultBaseUrl;
+const normalizedBaseUrl = baseUrlRaw.replace(/\/+$/, "") || defaultBaseUrl;
 
 const PER_ENTRY_CSS_GLOB = "**/*.{css,pcss,scss,sass}";
 const PER_ENTRY_CSS_IGNORE = "**/*.module.*".split(",").map((s) => s.trim());
@@ -83,6 +87,7 @@ for (const file of entries) {
         },
       },
     ],
+    base: `${normalizedBaseUrl}/`,
     esbuild: {
       jsx: "automatic",
       jsxImportSource: "react",
@@ -152,10 +157,6 @@ console.groupEnd();
 
 console.log("new hash: ", h);
 
-const defaultBaseUrl = "http://localhost:8000/assets";
-const baseUrlCandidate = process.env.BASE_URL?.trim() ?? "";
-const baseUrlRaw = baseUrlCandidate.length > 0 ? baseUrlCandidate : defaultBaseUrl;
-const normalizedBaseUrl = baseUrlRaw.replace(/\/+$/, "") || defaultBaseUrl;
 console.log(`Using BASE_URL ${normalizedBaseUrl} for generated HTML`);
 
 for (const name of builtNames) {

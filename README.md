@@ -226,7 +226,7 @@ ngrok http 8000
 
 3. Set `PUBLIC_URL` in `.env` to your ngrok URL, then restart `pnpm run dev`.
 4. Add `https://<your-ngrok-domain>/mcp` in ChatGPT developer mode.
-5. Ask ChatGPT to open the Twilio call panel (`twilio-call-panel`).
+5. Ask ChatGPT to open the Twilio call panel (`call-parent`).
 6. Click **Call** in the widget to start dialing and watch the transcript stream live.
 
 ## Deploy note
