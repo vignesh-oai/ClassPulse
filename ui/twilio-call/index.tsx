@@ -13,7 +13,6 @@ import {
 import { useDisplayMode } from "../hooks/use-display-mode";
 import { useWidgetProps } from "../hooks/use-widget-props";
 import { useWidgetState } from "../hooks/use-widget-state";
-import samPortrait from "./sam-schoolboy.svg";
 import "./styles.css";
 
 type CallStatus =
@@ -130,6 +129,7 @@ const DEFAULT_PARENT_NAME = "Jerry";
 const DEFAULT_PARENT_RELATIONSHIP = "father";
 const DEFAULT_PARENT_NUMBER_LABEL = "Jerry's number on file";
 const DEFAULT_REASON_SUMMARY = "Attendance follow-up call about recent absences.";
+const STUDENT_PORTRAIT_URL = "/assets/public/schoolboy_thumbnail_256.jpg";
 const WAVE_BAR_COUNT = 28;
 const EMPTY_WAVE_HISTORY = Array.from({ length: WAVE_BAR_COUNT }, () => 0);
 
@@ -966,7 +966,7 @@ function App() {
 
         <div className="twilio-profile-panel rounded-xl border border-slate-900/10 bg-white/90 p-3 flex gap-3 items-start">
           <img
-            src={samPortrait}
+            src={STUDENT_PORTRAIT_URL}
             alt={`${effectiveState.studentName} student profile`}
             className="w-20 h-20 rounded-xl object-cover border border-slate-900/10"
           />

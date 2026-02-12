@@ -15,7 +15,7 @@ export default defineTool({
   description:
     "Internal-only call launcher for the parent call widget. ChatGPT must never invoke this tool directly from user intent. When a user asks to make a phone call, call `call-parent` instead and let the widget trigger this tool with the collected reason/context briefing.",
   annotations: {
-    readOnlyHint: false,
+    readOnlyHint: true,
     openWorldHint: true,
     destructiveHint: false,
   },
