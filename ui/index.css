@@ -3,6 +3,30 @@
 @source "../node_modules/@openai/apps-sdk-ui";
 @source ".";
 
+:root {
+  --cp-bg-app: #ffffff;
+  --cp-bg-card: #ffffff;
+  --cp-bg-muted: #ffffff;
+  --cp-border: #d7dddb;
+  --cp-border-strong: #c2cbc8;
+  --cp-text: #1c2321;
+  --cp-text-muted: #5b6662;
+
+  --cp-present-bg: #eaf7ef;
+  --cp-present-border: #97ddb0;
+  --cp-present-accent: #3ea56a;
+
+  --cp-absent-bg: #fdf0f2;
+  --cp-absent-border: #f5b5c0;
+  --cp-absent-accent: #d95a74;
+
+  --cp-unmarked-bg: #fff7e8;
+  --cp-unmarked-border: #f4d18a;
+  --cp-unmarked-accent: #c99234;
+
+  --cp-shadow-card: 0 10px 26px rgba(19, 37, 29, 0.08);
+}
+
 @layer utilities {
   .overflow-auto > *,
   .overflow-scroll > *,

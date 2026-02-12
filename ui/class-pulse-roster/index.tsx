@@ -89,25 +89,25 @@ function parseToolPayload(raw: unknown): ClassPulsePayload | null {
 function rowTone(status: ClassPulseStudent["status"]) {
   if (status === "present") {
     return {
-      rowBg: "#ecfdf3",
-      border: "#86efac",
-      accent: "#22c55e",
-      dot: "#22c55e",
+      rowBg: "var(--cp-present-bg)",
+      border: "var(--cp-present-border)",
+      accent: "var(--cp-present-accent)",
+      dot: "var(--cp-present-accent)",
     } as const;
   }
   if (status === "absent") {
     return {
-      rowBg: "#fff1f2",
-      border: "#fda4af",
-      accent: "#f43f5e",
-      dot: "#f43f5e",
+      rowBg: "var(--cp-absent-bg)",
+      border: "var(--cp-absent-border)",
+      accent: "var(--cp-absent-accent)",
+      dot: "var(--cp-absent-accent)",
     } as const;
   }
   return {
-    rowBg: "#fff8eb",
-    border: "#fcd34d",
-    accent: "#f59e0b",
-    dot: "#f59e0b",
+    rowBg: "var(--cp-unmarked-bg)",
+    border: "var(--cp-unmarked-border)",
+    accent: "var(--cp-unmarked-accent)",
+    dot: "var(--cp-unmarked-accent)",
   } as const;
 }
 
@@ -324,26 +324,43 @@ function App() {
   const title = useMemo(() => `Class Pulse · ${payload.classDate}`, [payload.classDate]);
 
   return (
-    <div className="antialiased w-full max-w-4xl mx-auto text-black">
-      <div className="rounded-2xl border border-violet-200/70 bg-white/95 shadow-lg shadow-indigo-100/80 overflow-hidden">
-        <div className="px-5 py-4 sm:px-6 border-b border-violet-200/80 bg-gradient-to-r from-indigo-100/90 via-cyan-50 to-fuchsia-100/90">
+    <div
+      className="class-pulse-theme antialiased w-full max-w-4xl mx-auto"
+      style={{ color: "var(--cp-text)" }}
+    >
+      <div
+        className="rounded-2xl border overflow-hidden"
+        style={{
+          borderColor: "var(--cp-border-strong)",
+          backgroundColor: "var(--cp-bg-card)",
+          boxShadow: "var(--cp-shadow-card)",
+        }}
+      >
+        <div
+          className="px-5 py-4 sm:px-6 border-b"
+          style={{ borderColor: "var(--cp-border)", backgroundColor: "var(--cp-bg-muted)" }}
+        >
           <div className="flex flex-col gap-2">
             <div className="inline-flex items-center gap-2 text-lg font-semibold">
-              <CalendarDays className="h-5 w-5 text-violet-700" aria-hidden="true" />
+              <CalendarDays className="h-5 w-5 text-emerald-700" aria-hidden="true" />
               {title}
             </div>
-            <div className="text-sm text-black/65">
+            <div className="text-sm" style={{ color: "var(--cp-text-muted)" }}>
               Build your day: mark attendance quickly and add new students for the roster.
             </div>
           </div>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <label className="text-sm text-black/70" htmlFor="classDate">
+            <label className="text-sm" style={{ color: "var(--cp-text-muted)" }} htmlFor="classDate">
               Class date
             </label>
             <input
               id="classDate"
               type="date"
-              className="rounded-lg border border-violet-300 px-3 py-2 text-sm bg-white/90 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+              className="rounded-lg border px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+              style={{
+                borderColor: "var(--cp-border-strong)",
+                backgroundColor: "var(--cp-bg-card)",
+              }}
               value={payload.classDate}
               onChange={(event) => handleDateChange(event.target.value)}
             />
@@ -357,7 +374,11 @@ function App() {
                     clearRemovalState();
                     setIsRemovalMode(true);
                   }}
-                  className="inline-flex items-center gap-1.5 bg-white/90 border border-violet-200"
+                  className="inline-flex items-center gap-1.5 border"
+                  style={{
+                    backgroundColor: "var(--cp-bg-card)",
+                    borderColor: "var(--cp-border)",
+                  }}
                   aria-label="Enter remove mode"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -365,7 +386,7 @@ function App() {
                 </Button>
               ) : (
                 <>
-                  <span className="text-xs text-black/60">
+                  <span className="text-xs" style={{ color: "var(--cp-text-muted)" }}>
                     {selectedRemovalIds.size} selected
                   </span>
                   <Button
@@ -397,18 +418,24 @@ function App() {
           </div>
         </div>
 
-        <div className="px-4 py-3 sm:px-5 bg-slate-50/70">
+        <div className="px-4 py-3 sm:px-5" style={{ backgroundColor: "var(--cp-bg-app)" }}>
           <div className="mb-3 flex items-center gap-3 text-sm">
-            <span className="rounded-full px-3 py-1 bg-emerald-100 border border-emerald-200 text-emerald-700 shadow-sm">
+            <span className="rounded-full px-3 py-1 border text-emerald-800 shadow-sm bg-emerald-50 border-emerald-200">
               Present {payload.summary.present}
             </span>
-            <span className="rounded-full px-3 py-1 bg-rose-100 border border-rose-200 text-rose-700 shadow-sm">
+            <span className="rounded-full px-3 py-1 border text-rose-800 shadow-sm bg-rose-50 border-rose-200">
               Absent {payload.summary.absent}
             </span>
-            <span className="rounded-full px-3 py-1 bg-amber-100 border border-amber-200 text-amber-700 shadow-sm">
+            <span className="rounded-full px-3 py-1 border text-amber-800 shadow-sm bg-amber-50 border-amber-200">
               Unmarked {payload.summary.unmarked}
             </span>
-            <span className="rounded-full px-3 py-1 bg-white border border-violet-200 text-violet-700 ml-auto shadow-sm">
+            <span
+              className="rounded-full px-3 py-1 border ml-auto shadow-sm"
+              style={{
+                backgroundColor: "var(--cp-bg-card)",
+                borderColor: "var(--cp-border)",
+              }}
+            >
               Total {payload.summary.total}
             </span>
           </div>
@@ -430,19 +457,33 @@ function App() {
                   }}
                 >
                   {isRemovalMode ? (
-                    <input
+                    <button
+                      type="button"
                       aria-label={`Select ${student.firstName} ${student.lastName} for removal`}
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-violet-300"
-                      checked={isSelectedForRemoval}
-                      onChange={() => toggleStudentForRemoval(student.id)}
-                    />
+                      aria-pressed={isSelectedForRemoval}
+                      onClick={() => toggleStudentForRemoval(student.id)}
+                      className="h-5 w-5 rounded-md border flex items-center justify-center shrink-0 transition-colors"
+                      style={{
+                        borderColor: isSelectedForRemoval
+                          ? "var(--cp-absent-accent)"
+                          : "var(--cp-border-strong)",
+                        backgroundColor: isSelectedForRemoval
+                          ? "var(--cp-absent-accent)"
+                          : "var(--cp-bg-card)",
+                        color: isSelectedForRemoval ? "#ffffff" : "transparent",
+                      }}
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
                   ) : null}
                   <div
                     className="h-2 w-2 rounded-full"
                     style={{ backgroundColor: tone.dot }}
                   />
-                  <div className="h-9 w-9 rounded-full bg-gradient-to-br from-violet-100 to-pink-100 text-violet-800 flex items-center justify-center text-sm font-semibold">
+                  <div
+                    className="h-9 w-9 rounded-full flex items-center justify-center text-sm font-semibold"
+                    style={{ backgroundColor: "var(--cp-bg-muted)", color: "var(--cp-text)" }}
+                  >
                     {student.firstName[0]}
                     {student.lastName[0]}
                   </div>
@@ -450,7 +491,7 @@ function App() {
                     <div className="font-medium truncate">
                       {student.firstName} {student.lastName}
                     </div>
-                    <div className="text-xs text-black/60">
+                    <div className="text-xs" style={{ color: "var(--cp-text-muted)" }}>
                       {student.markedAt
                         ? `Last marked ${student.markedAt}`
                         : "Not marked"}
@@ -508,7 +549,10 @@ function App() {
               );
             })}
             {payload.students.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-violet-200/80 px-3 py-6 text-center text-sm text-black/60 bg-white">
+              <div
+                className="rounded-xl border border-dashed px-3 py-6 text-center text-sm bg-white"
+                style={{ borderColor: "var(--cp-border)", color: "var(--cp-text-muted)" }}
+              >
                 No students loaded for this date. Add students below to build the
                 roster.
               </div>
@@ -517,30 +561,33 @@ function App() {
         </div>
 
         <form
-          className="border-t border-violet-200/80 px-4 py-4 sm:px-5 bg-gradient-to-r from-violet-50/70 via-sky-50/60 to-fuchsia-50/70 flex flex-col sm:flex-row gap-2 sm:items-end"
+          className="border-t px-4 py-4 sm:px-5 flex flex-col sm:flex-row gap-2 sm:items-end"
+          style={{ borderColor: "var(--cp-border)", backgroundColor: "var(--cp-bg-muted)" }}
           onSubmit={addStudent}
         >
           <div className="flex-1 min-w-0">
-            <label className="text-xs font-medium text-black/70" htmlFor="firstName">
+            <label className="text-xs font-medium" style={{ color: "var(--cp-text-muted)" }} htmlFor="firstName">
               First name
             </label>
             <input
               id="firstName"
               value={newFirstName}
               onChange={(event) => setNewFirstName(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-violet-300 px-3 py-2 text-sm bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+              style={{ borderColor: "var(--cp-border-strong)" }}
               placeholder="First"
             />
           </div>
           <div className="flex-1 min-w-0">
-            <label className="text-xs font-medium text-black/70" htmlFor="lastName">
+            <label className="text-xs font-medium" style={{ color: "var(--cp-text-muted)" }} htmlFor="lastName">
               Last name
             </label>
             <input
               id="lastName"
               value={newLastName}
               onChange={(event) => setNewLastName(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-violet-300 px-3 py-2 text-sm bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+              style={{ borderColor: "var(--cp-border-strong)" }}
               placeholder="Last"
             />
           </div>
@@ -550,7 +597,7 @@ function App() {
             variant="solid"
             size="sm"
             disabled={isAdding}
-            className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white border border-violet-700 hover:brightness-110"
+            className="bg-emerald-700 text-white border border-emerald-800 hover:bg-emerald-600"
           >
             {isAdding ? (
               "Adding..."
