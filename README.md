@@ -6,16 +6,21 @@ Focused Apps SDK + MCP example centered on Pizzaz widgets.
 
 - `index.ts` - MCP server entrypoint (SSE + tool wiring)
 - `tools/` - MCP tool definitions (one file per tool)
+- `tools/sqlite-tools.ts` - helper to create catalog, execution, and metadata-driven canned-query tools.
 - `utils/` - generic MCP server plumbing/helpers
+- `utils/sqlite-bridge.ts` - Python bridge for SQLite metadata + query execution.
 - `ui/` - React widget source code
 - `assets/` - built widget HTML/JS/CSS output
+- `ui/sqlite/` - widget used by the SQLite tools.
 - `build-all.mts` - widget production build script
 - `vite.config.mts` - local widget dev server config
+- `samples/sqlite/` - sample `titanic.db` + `titanic.yml` for canned queries
 
 ## Prerequisites
 
 - Node.js 18+
 - pnpm
+- Python 3 with `sqlite3` and `pyyaml` (for metadata parsing)
 
 ## Install
 
@@ -93,6 +98,35 @@ Run MCP server:
 ```bash
 pnpm run mcp:start
 ```
+
+## SQLite MCP tools
+
+The SQLite integration is loaded from `tools/sqlite-tools.ts` and `utils/sqlite-bridge.ts`.
+
+It provides:
+
+- `<prefix>sqlite_get_catalog` - returns the catalog of available databases/tables/columns.
+- `<prefix>sqlite_execute` - executes arbitrary SQL in read-only mode.
+- `<query name>` for each query in metadata (`databases.<db>.queries`) - built as individual tools.
+
+The active tool prefix comes from `MCP_SQLITE_PREFIX` (defaults to empty). Query names are read from the metadata keys; avoid `sqlite_*` keys to prevent collisions.
+
+Configuration is controlled via environment variables:
+
+- `MCP_SQLITE_DB` - SQLite file path (default `samples/sqlite/titanic.db`).
+- `MCP_SQLITE_METADATA` - metadata YAML/JSON path (default `samples/sqlite/titanic.yml`).
+- `MCP_SQLITE_PREFIX` - optional string prepended to catalog and execute tool names.
+- `MCP_SQLITE_PYTHON` - Python executable, default `python3`.
+
+A typical setup uses:
+
+```bash
+cp .env.example .env
+# Then adjust .env values and run
+pnpm run dev
+```
+
+Once running, call `sqlite_get_catalog` first to discover generated canned-query tools and their parameters.
 
 Run MCP server in watch mode:
 

@@ -28,10 +28,16 @@ The server exposes tools that render widgets via `_meta.openai/outputTemplate`.
   Tool definitions (one file per tool).
 - `tools/index.ts`
   Exports `toolDefinitions` array consumed by server startup.
+- `tools/sqlite-tools.ts`
+  Builds SQLite tools from database metadata (catalog, execute, and canned query tools).
 - `utils/define-tool.ts`
   `defineTool(...)` helper. Converts Zod input to MCP input schema.
 - `utils/widget-catalog.ts`
   Maps tool defs to resources/templates/tool metadata and loads widget HTML from `assets/`.
+- `utils/sqlite-bridge.ts`
+  Python bridge for catalog/query execution and metadata loading.
+- `samples/sqlite/`
+  Sample database and metadata used for local SQLite testing.
 - `utils/create-mcp-server.ts`
   Registers MCP handlers.
 - `utils/start-sse-server.ts`
@@ -44,6 +50,7 @@ The server exposes tools that render widgets via `_meta.openai/outputTemplate`.
 3. Define tool input once in Zod; do not hand-write `inputSchema`.
 4. Keep naming consistent across UI, build targets, and tool metadata.
 5. Validate with TypeScript before finishing.
+6. For SQLite-backed tools, verify metadata-generated query tooling before calling the feature complete.
 
 ## Add a new UI widget
 
@@ -77,6 +84,17 @@ The server exposes tools that render widgets via `_meta.openai/outputTemplate`.
 4. Export as default.
 5. Register in `tools/index.ts` by adding it to `toolDefinitions`.
 
+## Add or update SQLite MCP tools
+
+1. Keep metadata-driven SQL definitions in `samples/sqlite/<...>.yml` (or another metadata file) under `databases.<db>.queries`.
+2. Query slugs become tool names (with `MCP_SQLITE_PREFIX` prepended), so avoid slugs starting with `sqlite_`.
+3. Ensure tools are generated as `<prefix>sqlite_get_catalog`, `<prefix>sqlite_execute`, and one tool per metadata query in `tools/sqlite-tools.ts`.
+4. Update environment configuration when backing store changes:
+   - `MCP_SQLITE_DB`
+   - `MCP_SQLITE_METADATA`
+   - `MCP_SQLITE_PREFIX`
+   - `MCP_SQLITE_PYTHON`
+
 ## How tool -> widget wiring works
 
 - `ui` is used to read widget HTML from `assets/` via `readWidgetHtml(...)`.
@@ -85,6 +103,7 @@ The server exposes tools that render widgets via `_meta.openai/outputTemplate`.
   - `tools` (for `list_tools`)
   - `resources` and `resourceTemplates`
   - invocation metadata for `call_tool`
+- SQLite-backed tool responses are rendered through the `sqlite` widget (`ui: "sqlite"`). If the widget fails, verify `ui/sqlite/index.tsx` is built and available in `assets/`.
 
 If the widget does not render, check `ui` first.
 
@@ -118,6 +137,7 @@ Optional:
 - Mismatch between `ui` and actual template URI expectations.
 - Mismatch between `ui` and built asset basename.
 - Starting MCP server before building assets (server will fail to find HTML).
+- SQLite: query slugs that start with `sqlite_` are blocked by the bridge.
 
 ## Conventions
 
