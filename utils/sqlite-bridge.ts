@@ -321,6 +321,4 @@ export function getSqliteQueryManifest(): SqliteBridgeManifestResponse {
   });
 }
 
-export type SqliteQuerySpec = SqliteBridgeCatalogQuery["queries"][string] & {
-  name: string;
-};
+export type SqliteQuerySpec = SqliteBridgeManifestResponse["queries"][number];
