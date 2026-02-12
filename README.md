@@ -175,6 +175,60 @@ Then add this MCP URL in ChatGPT developer mode:
 https://<your-tunnel-domain>/mcp
 ```
 
+## Twilio + Realtime call widget
+
+This repo now includes a Twilio calling widget (`twilio-call`) that can:
+
+- start an outbound attendance follow-up call to a configured parent number
+- bridge bidirectional audio between Twilio Media Streams and OpenAI Realtime API
+- stream a live transcript (partial + final turns) into the ChatGPT iframe widget
+- render teacher-facing context (student + parent profile) with a live interaction waveform
+
+### Required environment variables
+
+Copy `.env.example` to `.env` and set:
+
+- `PUBLIC_URL` to your externally reachable URL (ngrok HTTPS URL for local dev)
+- `OPENAI_API_KEY`
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_FROM_NUMBER`
+
+Optional overrides:
+
+- `TWILIO_TO_NUMBER_DEFAULT` (defaults to `+16282897075`)
+- `OPENAI_REALTIME_MODEL`
+- `OPENAI_REALTIME_VOICE`
+- `OPENAI_REALTIME_TRANSCRIPTION_MODEL`
+- `OPENAI_REALTIME_PROMPT_TEMPLATE` (defaults to `prompts/teacher-parent-absence-call.jinja`)
+- `OPENAI_REALTIME_SYSTEM_PROMPT`
+- `CALL_VIEWER_TOKEN_SECRET`
+- `CALL_STUDENT_NAME`
+- `CALL_PARENT_NAME`
+- `CALL_PARENT_RELATIONSHIP`
+- `CALL_PARENT_NUMBER_LABEL`
+- `CALL_SCHOOL_NAME`
+- `CALL_TEACHER_ROLE`
+
+### Local run flow
+
+1. Start the app:
+
+```bash
+pnpm run dev
+```
+
+2. Expose the app publicly:
+
+```bash
+ngrok http 8000
+```
+
+3. Set `PUBLIC_URL` in `.env` to your ngrok URL, then restart `pnpm run dev`.
+4. Add `https://<your-ngrok-domain>/mcp` in ChatGPT developer mode.
+5. Ask ChatGPT to open the Twilio call panel (`twilio-call-panel`).
+6. Click **Call** in the widget to start dialing and watch the transcript stream live.
+
 ## Deploy note
 
 If assets are hosted elsewhere, override `BASE_URL` when building:

@@ -1,0 +1,69 @@
+.twilio-call-widget {
+  font-family: "Averia Serif Libre", "Segoe UI", ui-sans-serif, sans-serif;
+  background: linear-gradient(160deg, #f5fbff 0%, #eef6ff 35%, #f8f4ff 100%);
+}
+
+.twilio-hero {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(59, 130, 246, 0.16), transparent 45%),
+    radial-gradient(circle at 82% 6%, rgba(16, 185, 129, 0.12), transparent 42%),
+    linear-gradient(120deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.9));
+}
+
+.twilio-profile-panel {
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
+}
+
+.twilio-call-transcript {
+  scrollbar-width: thin;
+}
+
+.twilio-call-transcript::-webkit-scrollbar {
+  width: 8px;
+}
+
+.twilio-call-transcript::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.18);
+}
+
+.twilio-wave-chart {
+  height: 54px;
+  border-radius: 10px;
+  border: 1px solid rgba(30, 41, 59, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(241, 245, 249, 0.9));
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  padding: 6px;
+}
+
+.twilio-wave-bar {
+  width: 5px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 50%, #0f766e 100%);
+  transform-origin: center bottom;
+  animation: twilioWavePulse 1100ms ease-in-out infinite;
+}
+
+.twilio-wave-bar:nth-child(3n) {
+  animation-duration: 1280ms;
+}
+
+.twilio-wave-bar:nth-child(4n) {
+  animation-duration: 980ms;
+}
+
+@keyframes twilioWavePulse {
+  0% {
+    transform: scaleY(0.82);
+  }
+  50% {
+    transform: scaleY(1.06);
+  }
+  100% {
+    transform: scaleY(0.82);
+  }
+}

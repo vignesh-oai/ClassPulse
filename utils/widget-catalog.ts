@@ -18,10 +18,19 @@ type Widget = {
 };
 
 type DescriptorMeta = {
+  ui: {
+    resourceUri: string;
+    visibility: ["model", "app"];
+    csp: {
+      connectDomains: string[];
+      resourceDomains: string[];
+    };
+  };
   "openai/outputTemplate": string;
   "openai/toolInvocation/invoking": string;
   "openai/toolInvocation/invoked": string;
   "openai/widgetAccessible": true;
+  "openai/visibility": "public";
 };
 
 type InvocationMeta = {
@@ -82,11 +91,38 @@ function readWidgetHtml(assetsDir: string, uiName: string): string {
 }
 
 function descriptorMeta(widget: Widget): DescriptorMeta {
+  const connectDomains: string[] = [];
+  const configuredPublicUrl = process.env.PUBLIC_URL?.trim();
+  if (configuredPublicUrl) {
+    try {
+      const parsed = new URL(configuredPublicUrl);
+      connectDomains.push(parsed.origin);
+      if (parsed.protocol === "https:") {
+        connectDomains.push(`wss://${parsed.host}`);
+      } else if (parsed.protocol === "http:") {
+        connectDomains.push(`ws://${parsed.host}`);
+      }
+    } catch {
+      // Keep default CSP domains if PUBLIC_URL is invalid.
+    }
+  }
+
+  const uniqueConnectDomains = Array.from(new Set(connectDomains));
+
   return {
+    ui: {
+      resourceUri: widget.templateUri,
+      visibility: ["model", "app"],
+      csp: {
+        connectDomains: uniqueConnectDomains,
+        resourceDomains: ["https://persistent.oaistatic.com"],
+      },
+    },
     "openai/outputTemplate": widget.templateUri,
     "openai/toolInvocation/invoking": widget.invoking,
     "openai/toolInvocation/invoked": widget.invoked,
     "openai/widgetAccessible": true,
+    "openai/visibility": "public",
   };
 }
 

@@ -4,6 +4,7 @@ import {
   type Server as HttpServer,
   type ServerResponse,
 } from "node:http";
+import type { Socket } from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import { URL } from "node:url";
@@ -18,6 +19,17 @@ type StartSseServerOptions = {
   postPath?: string;
   staticAssetsDir?: string;
   staticAssetsPath?: string;
+  customRequestHandler?: (
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+  ) => boolean | Promise<boolean>;
+  customUpgradeHandler?: (
+    req: IncomingMessage,
+    socket: Socket,
+    head: Buffer,
+    url: URL,
+  ) => boolean;
 };
 
 type SessionRecord = {
@@ -246,6 +258,13 @@ export function startSseServer(options: StartSseServerOptions): HttpServer {
       return;
     }
 
+    if (options.customRequestHandler) {
+      const handled = await options.customRequestHandler(req, res, url);
+      if (handled) {
+        return;
+      }
+    }
+
     if (options.staticAssetsDir) {
       const served = await serveStaticAsset(
         req,
@@ -265,6 +284,24 @@ export function startSseServer(options: StartSseServerOptions): HttpServer {
   httpServer.on("clientError", (error: Error, socket) => {
     console.error("HTTP client error", error);
     socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
+  });
+
+  httpServer.on("upgrade", (req: IncomingMessage, socket: Socket, head: Buffer) => {
+    if (!options.customUpgradeHandler) {
+      socket.destroy();
+      return;
+    }
+
+    const url = getRequestUrl(req);
+    if (!url) {
+      socket.destroy();
+      return;
+    }
+
+    const handled = options.customUpgradeHandler(req, socket, head, url);
+    if (!handled) {
+      socket.destroy();
+    }
   });
 
   httpServer.listen(options.port, () => {
