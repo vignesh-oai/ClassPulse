@@ -21,6 +21,7 @@ import {
   logInfo,
   logWarn,
   redactPhone,
+  truncate,
 } from "./call-debug";
 import { bridgeTwilioToRealtime } from "./twilio-realtime-bridge";
 import { createViewerToken, verifyViewerToken } from "./viewer-token";
@@ -30,6 +31,7 @@ const DEFAULT_STUDENT_NAME = "Sam";
 const DEFAULT_PARENT_NAME = "Jerry";
 const DEFAULT_PARENT_RELATIONSHIP = "father";
 const DEFAULT_PARENT_NUMBER_LABEL = "Parent number on file";
+const DEFAULT_SUMMARY_MODEL = "gpt-4.1";
 
 function trimOrDefault(value: string | undefined, fallback: string): string {
   const trimmed = value?.trim();
@@ -107,6 +109,31 @@ type CallStartResult = {
   reconnectSinceSeq: number;
   callSid: string | null;
   errorMessage?: string;
+};
+
+type AttendanceRisk = "low" | "medium" | "high" | "unknown";
+
+type CallSummaryResult = {
+  sessionId: string;
+  status: CallStatus;
+  startedAt: string;
+  endedAt: string | null;
+  terminalReason: string | null;
+  summary: string;
+  keyPoints: string[];
+  actionItems: string[];
+  attendanceRisk: AttendanceRisk;
+  source: "openai" | "heuristic";
+  generatedAt: string;
+  transcriptItems: number;
+  studentName: string;
+  parentName: string;
+  parentRelationship: string;
+};
+
+type CachedSummary = {
+  lastSeq: number;
+  result: CallSummaryResult;
 };
 
 type TwilioIntegration = {
@@ -251,6 +278,8 @@ function parsePositiveInt(raw: string | null): number {
   return Math.floor(parsed);
 }
 
+const summaryCache = new Map<string, CachedSummary>();
+
 function describeError(error: unknown): Record<string, unknown> {
   if (error instanceof Error) {
     const withDetails = error as Error & {
@@ -363,6 +392,355 @@ function getTwilioConfig():
   };
 }
 
+function asArray(value: unknown): unknown[] | null {
+  return Array.isArray(value) ? value : null;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter((entry) => entry.length > 0);
+}
+
+function normalizeRisk(value: unknown): AttendanceRisk {
+  if (
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "unknown"
+  ) {
+    return value;
+  }
+  return "unknown";
+}
+
+function collapseWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function extractResponseOutputText(payload: Record<string, unknown>): string | null {
+  const direct = asString(payload.output_text);
+  if (direct) {
+    return direct;
+  }
+
+  const output = asArray(payload.output);
+  if (!output) {
+    return null;
+  }
+
+  for (const outputItem of output) {
+    const item = asRecord(outputItem);
+    if (!item || asString(item.type) !== "message") {
+      continue;
+    }
+
+    const content = asArray(item.content);
+    if (!content) {
+      continue;
+    }
+
+    for (const contentItem of content) {
+      const part = asRecord(contentItem);
+      if (!part || asString(part.type) !== "output_text") {
+        continue;
+      }
+
+      const text = asString(part.text);
+      if (text) {
+        return text;
+      }
+    }
+  }
+
+  return null;
+}
+
+function parseSummaryJson(raw: string): Record<string, unknown> | null {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const attempts: string[] = [trimmed];
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) {
+    attempts.push(fenced[1].trim());
+  }
+
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    attempts.push(trimmed.slice(firstBrace, lastBrace + 1));
+  }
+
+  for (const candidate of attempts) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      const record = asRecord(parsed);
+      if (record) {
+        return record;
+      }
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
+  return null;
+}
+
+function heuristicAttendanceRisk(transcriptText: string): AttendanceRisk {
+  const normalized = transcriptText.toLowerCase();
+  if (!normalized) {
+    return "unknown";
+  }
+
+  const highSignals = [
+    "homeless",
+    "evict",
+    "unsafe",
+    "hospital",
+    "emergency",
+    "can't make",
+    "cannot make",
+    "won't be able",
+  ];
+  if (highSignals.some((signal) => normalized.includes(signal))) {
+    return "high";
+  }
+
+  const mediumSignals = [
+    "sick",
+    "ill",
+    "doctor",
+    "transport",
+    "bus",
+    "ride",
+    "work schedule",
+    "shift",
+    "anxiety",
+    "stressed",
+    "family issue",
+  ];
+  if (mediumSignals.some((signal) => normalized.includes(signal))) {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function buildHeuristicSummary(params: {
+  status: CallStatus;
+  transcript: Array<{
+    speaker: "recipient" | "assistant";
+    text: string;
+    isFinal: boolean;
+  }>;
+  parentName: string;
+  parentRelationship: string;
+  studentName: string;
+}): Omit<CallSummaryResult, "sessionId" | "startedAt" | "endedAt" | "terminalReason" | "generatedAt" | "transcriptItems" | "source"> {
+  const recipientLines = params.transcript
+    .filter((line) => line.speaker === "recipient")
+    .map((line) => collapseWhitespace(line.text))
+    .filter((line) => line.length > 0);
+  const assistantLines = params.transcript
+    .filter((line) => line.speaker === "assistant")
+    .map((line) => collapseWhitespace(line.text))
+    .filter((line) => line.length > 0);
+
+  const transcriptText = params.transcript
+    .map((line) => `${line.speaker === "assistant" ? "Assistant" : params.parentName}: ${collapseWhitespace(line.text)}`)
+    .join("\n");
+
+  const previewSource = recipientLines.length > 0 ? recipientLines : assistantLines;
+  const preview = previewSource.slice(-2).join(" ");
+  const clippedPreview = truncate(preview, 280) ?? "";
+  const relationshipLabel =
+    params.parentRelationship.length > 0 ? params.parentRelationship : "parent";
+
+  const summary =
+    clippedPreview.length > 0
+      ? `Call ${params.status} with ${params.parentName} (${relationshipLabel}) about ${params.studentName}'s attendance. Key details: ${clippedPreview}`
+      : `Call ${params.status} with ${params.parentName} about ${params.studentName}'s attendance. No transcript details were captured.`;
+
+  const keyPoints = previewSource.slice(-3);
+  const actionItems = [
+    "Record the call outcome in attendance notes and notify the classroom teacher.",
+    "Monitor attendance for the next school week and schedule a follow-up if absences continue.",
+  ];
+
+  const normalizedTranscript = transcriptText.toLowerCase();
+  if (
+    normalizedTranscript.includes("transport") ||
+    normalizedTranscript.includes("bus") ||
+    normalizedTranscript.includes("ride")
+  ) {
+    actionItems.push("Coordinate transportation support options with the family.");
+  }
+  if (
+    normalizedTranscript.includes("sick") ||
+    normalizedTranscript.includes("doctor") ||
+    normalizedTranscript.includes("ill")
+  ) {
+    actionItems.push("Offer make-up work plan and wellness check-in after recovery.");
+  }
+
+  return {
+    status: params.status,
+    studentName: params.studentName,
+    parentName: params.parentName,
+    parentRelationship: params.parentRelationship,
+    summary,
+    keyPoints,
+    actionItems: actionItems.slice(0, 4),
+    attendanceRisk: heuristicAttendanceRisk(transcriptText),
+  };
+}
+
+async function generateSummaryFromOpenAi(params: {
+  model: string;
+  transcriptPrompt: string;
+  parentName: string;
+  parentRelationship: string;
+  studentName: string;
+}): Promise<{
+  summary: string;
+  keyPoints: string[];
+  actionItems: string[];
+  attendanceRisk: AttendanceRisk;
+} | null> {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) {
+    return null;
+  }
+
+  const requestBody = {
+    model: params.model,
+    temperature: 0.2,
+    input: [
+      {
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text:
+              "You summarize school attendance outreach calls. Return ONLY valid JSON with keys summary, key_points, action_items, attendance_risk. Keep key_points/action_items concise and practical.",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: [
+              `Student: ${params.studentName}`,
+              `Parent contact: ${params.parentName} (${params.parentRelationship})`,
+              "Call transcript:",
+              params.transcriptPrompt,
+              "",
+              "Constraints:",
+              "- summary: 2-4 sentences",
+              "- key_points: array of 3-5 strings",
+              "- action_items: array of 2-4 strings",
+              '- attendance_risk: one of "low", "medium", "high", "unknown"',
+            ].join("\n"),
+          },
+        ],
+      },
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "attendance_call_summary",
+        strict: true,
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            summary: { type: "string" },
+            key_points: {
+              type: "array",
+              items: { type: "string" },
+            },
+            action_items: {
+              type: "array",
+              items: { type: "string" },
+            },
+            attendance_risk: {
+              type: "string",
+              enum: ["low", "medium", "high", "unknown"],
+            },
+          },
+          required: ["summary", "key_points", "action_items", "attendance_risk"],
+        },
+      },
+    },
+  };
+
+  let rawResponse: Response;
+  try {
+    rawResponse = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+  } catch (error) {
+    logWarn("Summary request failed before receiving a response", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+
+  if (!rawResponse.ok) {
+    const errorText = await rawResponse.text();
+    logWarn("Summary request failed", {
+      status: rawResponse.status,
+      statusText: rawResponse.statusText,
+      bodyPreview: truncate(errorText, 600),
+    });
+    return null;
+  }
+
+  const payload = (await rawResponse.json()) as Record<string, unknown>;
+  const outputText = extractResponseOutputText(payload);
+  if (!outputText) {
+    logWarn("Summary response did not include output text");
+    return null;
+  }
+
+  const parsed = parseSummaryJson(outputText);
+  if (!parsed) {
+    logWarn("Summary response was not valid JSON", {
+      outputPreview: truncate(outputText, 600),
+    });
+    return null;
+  }
+
+  const summary = collapseWhitespace(asString(parsed.summary) ?? "");
+  const keyPoints = asStringArray(parsed.key_points);
+  const actionItems = asStringArray(parsed.action_items);
+  const attendanceRisk = normalizeRisk(parsed.attendance_risk);
+
+  if (!summary) {
+    return null;
+  }
+
+  return {
+    summary,
+    keyPoints,
+    actionItems,
+    attendanceRisk,
+  };
+}
+
 export function getTwilioCallPanelOutput(): {
   sessionId: null;
   displayNumber: string;
@@ -440,6 +818,89 @@ export function getTwilioCallStatusOutput(sessionId: string): {
       timestamp: item.timestamp,
     })),
   };
+}
+
+export async function getTwilioCallSummaryOutput(
+  sessionId: string,
+): Promise<CallSummaryResult | null> {
+  const summary = getCallSessionSummary(sessionId);
+  if (!summary) {
+    return null;
+  }
+
+  const cached = summaryCache.get(sessionId);
+  if (cached && cached.lastSeq === summary.lastSeq) {
+    return cached.result;
+  }
+
+  const context = getTeacherCallContext();
+  const transcriptLines = summary.transcript
+    .map((item) => ({
+      speaker: item.speaker,
+      text: item.text,
+      isFinal: item.isFinal,
+    }))
+    .filter((item) => collapseWhitespace(item.text).length > 0);
+
+  const transcriptPrompt = transcriptLines
+    .map((line) => {
+      const speaker = line.speaker === "assistant" ? "School Assistant" : context.parentName;
+      const text = collapseWhitespace(line.text);
+      return `${speaker}: ${text}`;
+    })
+    .join("\n");
+
+  const summaryModel = process.env.OPENAI_SUMMARY_MODEL?.trim() || DEFAULT_SUMMARY_MODEL;
+  const openAiSummary =
+    transcriptPrompt.length > 0
+      ? await generateSummaryFromOpenAi({
+          model: summaryModel,
+          transcriptPrompt,
+          parentName: context.parentName,
+          parentRelationship: context.parentRelationship,
+          studentName: context.studentName,
+        })
+      : null;
+
+  const heuristic = buildHeuristicSummary({
+    status: summary.status,
+    transcript: transcriptLines,
+    parentName: context.parentName,
+    parentRelationship: context.parentRelationship,
+    studentName: context.studentName,
+  });
+
+  const generatedAt = new Date().toISOString();
+  const result: CallSummaryResult = {
+    sessionId: summary.sessionId,
+    status: summary.status,
+    startedAt: summary.startedAt,
+    endedAt: summary.endedAt,
+    terminalReason: summary.terminalReason,
+    studentName: context.studentName,
+    parentName: context.parentName,
+    parentRelationship: context.parentRelationship,
+    summary: openAiSummary?.summary ?? heuristic.summary,
+    keyPoints:
+      openAiSummary && openAiSummary.keyPoints.length > 0
+        ? openAiSummary.keyPoints
+        : heuristic.keyPoints,
+    actionItems:
+      openAiSummary && openAiSummary.actionItems.length > 0
+        ? openAiSummary.actionItems
+        : heuristic.actionItems,
+    attendanceRisk: openAiSummary?.attendanceRisk ?? heuristic.attendanceRisk,
+    source: openAiSummary ? "openai" : "heuristic",
+    generatedAt,
+    transcriptItems: summary.transcript.length,
+  };
+
+  summaryCache.set(sessionId, {
+    lastSeq: summary.lastSeq,
+    result,
+  });
+
+  return result;
 }
 
 export async function startTwilioOutboundCall(): Promise<CallStartResult> {

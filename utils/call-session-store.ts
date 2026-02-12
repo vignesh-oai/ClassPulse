@@ -44,6 +44,13 @@ export type CallLogEvent =
       order: number;
     }
   | {
+      type: "audio.level";
+      seq: number;
+      speaker: TranscriptSpeaker;
+      level: number;
+      timestamp: string;
+    }
+  | {
       type: "session.end";
       seq: number;
       reason: string;
@@ -99,6 +106,12 @@ type CallLogEventInput =
       speaker: TranscriptSpeaker;
       fullText: string;
       order: number;
+      timestamp?: string;
+    }
+  | {
+      type: "audio.level";
+      speaker: TranscriptSpeaker;
+      level: number;
       timestamp?: string;
     }
   | {
@@ -192,6 +205,14 @@ function appendLogEvent(
       fullText: event.fullText,
       timestamp,
       order: event.order,
+    };
+  } else if (event.type === "audio.level") {
+    nextEvent = {
+      type: "audio.level",
+      seq,
+      speaker: event.speaker,
+      level: event.level,
+      timestamp,
     };
   } else {
     nextEvent = {
@@ -475,6 +496,24 @@ export function appendTranscriptFinal(params: {
 
   item.seq = event.seq;
   item.timestamp = event.timestamp;
+}
+
+export function appendAudioLevel(params: {
+  sessionId: string;
+  speaker: TranscriptSpeaker;
+  level: number;
+}): void {
+  const session = callSessions.get(params.sessionId);
+  if (!session) {
+    return;
+  }
+
+  const clamped = Math.max(0, Math.min(1, params.level));
+  appendLogEvent(session, {
+    type: "audio.level",
+    speaker: params.speaker,
+    level: clamped,
+  });
 }
 
 export function listLogEventsSince(

@@ -12,6 +12,7 @@ import { createSqliteTools } from "./sqlite-tools";
 import twilioCallPanelTool from "./twilio-call-panel";
 import twilioCallStartTool from "./twilio-call-start";
 import twilioCallStatusTool from "./twilio-call-status";
+import twilioCallSummaryTool from "./twilio-call-summary";
 
 export const toolDefinitions: ToolDefinition[] = [
   pizzaMapTool,
@@ -22,6 +23,7 @@ export const toolDefinitions: ToolDefinition[] = [
   twilioCallPanelTool,
   twilioCallStartTool,
   twilioCallStatusTool,
+  twilioCallSummaryTool,
   classPulseRosterTool,
   classPulseMarkAttendanceTool,
   classPulseAddStudentTool,

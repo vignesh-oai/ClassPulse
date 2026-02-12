@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import type { IncomingMessage } from "node:http";
 import {
+  appendAudioLevel,
   appendTranscriptDelta,
   appendTranscriptFinal,
   getCallSession,
@@ -22,6 +23,8 @@ const DEFAULT_REALTIME_VOICE = "marin";
 const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 const WS_OPEN = 1;
 const WS_CONNECTING = 0;
+const PCMU_MAX_ABS_SAMPLE = 32124;
+const AUDIO_LEVEL_SAMPLE_EVERY_FRAMES = 4;
 
 type BridgeSocket = {
   readyState: number;
@@ -151,6 +154,39 @@ function pickTranscriptText(
   return null;
 }
 
+function decodeMuLawSample(muLawByte: number): number {
+  const mu = (~muLawByte) & 0xff;
+  const sign = mu & 0x80;
+  const exponent = (mu >> 4) & 0x07;
+  const mantissa = mu & 0x0f;
+  let sample = ((mantissa << 3) + 0x84) << exponent;
+  sample -= 0x84;
+  return sign ? -sample : sample;
+}
+
+function estimatePcmuLevel(encodedAudio: string): number | null {
+  let frame: Buffer;
+  try {
+    frame = Buffer.from(encodedAudio, "base64");
+  } catch {
+    return null;
+  }
+
+  if (frame.length === 0) {
+    return null;
+  }
+
+  let sumSquares = 0;
+  for (const byte of frame) {
+    const sample = decodeMuLawSample(byte);
+    sumSquares += sample * sample;
+  }
+  const rms = Math.sqrt(sumSquares / frame.length);
+  const normalized = Math.min(1, Math.max(0, rms / PCMU_MAX_ABS_SAMPLE));
+  // Speech energy is typically low in normalized PCM space; scale for UI readability.
+  return Math.min(1, normalized * 3.4);
+}
+
 export function bridgeTwilioToRealtime(options: BridgeOptions): void {
   const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
   if (!openAiApiKey) {
@@ -185,6 +221,8 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
   let realtimeOutboundMediaFrames = 0;
   let twilioInboundBytes = 0;
   let realtimeOutboundBytes = 0;
+  let twilioAudioLevelFrames = 0;
+  let realtimeAudioLevelFrames = 0;
   let recipientDeltaEvents = 0;
   let recipientFinalEvents = 0;
   let assistantDeltaEvents = 0;
@@ -331,6 +369,17 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
       });
       realtimeOutboundMediaFrames += 1;
       realtimeOutboundBytes += payload.length;
+      realtimeAudioLevelFrames += 1;
+      if (realtimeAudioLevelFrames % AUDIO_LEVEL_SAMPLE_EVERY_FRAMES === 0) {
+        const level = estimatePcmuLevel(payload);
+        if (level != null) {
+          appendAudioLevel({
+            sessionId: options.sessionId,
+            speaker: "assistant",
+            level,
+          });
+        }
+      }
       if (realtimeOutboundMediaFrames % 50 === 0) {
         logDebug("Forwarded Realtime audio frames to Twilio", {
           sessionId: options.sessionId,
@@ -579,6 +628,17 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
       });
       twilioInboundMediaFrames += 1;
       twilioInboundBytes += encodedAudio.length;
+      twilioAudioLevelFrames += 1;
+      if (twilioAudioLevelFrames % AUDIO_LEVEL_SAMPLE_EVERY_FRAMES === 0) {
+        const level = estimatePcmuLevel(encodedAudio);
+        if (level != null) {
+          appendAudioLevel({
+            sessionId: options.sessionId,
+            speaker: "recipient",
+            level,
+          });
+        }
+      }
       if (twilioInboundMediaFrames % 50 === 0) {
         logDebug("Forwarded Twilio audio frames to Realtime", {
           sessionId: options.sessionId,
