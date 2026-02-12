@@ -6,12 +6,14 @@ import {
   CheckCircle2,
   FileText,
   Loader2,
+  Maximize2,
   MessageSquareText,
   PhoneCall,
 } from "lucide-react";
+import { useDisplayMode } from "../hooks/use-display-mode";
 import { useWidgetProps } from "../hooks/use-widget-props";
 import { useWidgetState } from "../hooks/use-widget-state";
-import samPortrait from "./sam-schoolgirl.png";
+import samPortrait from "./sam-schoolboy.svg";
 import "./styles.css";
 
 type CallStatus =
@@ -566,6 +568,7 @@ function transcriptSpeakerLabel(
 }
 
 function App() {
+  const displayMode = useDisplayMode();
   const toolOutput = useWidgetProps<WidgetToolOutput>(DEFAULT_TOOL_OUTPUT);
   const [widgetState, setWidgetState] = useWidgetState<CallWidgetState>(() => ({
     sessionId: toolOutput.sessionId,
@@ -916,6 +919,21 @@ function App() {
     [effectiveState.isConnecting, effectiveState.status],
   );
 
+  const requestFullscreen = useCallback(async () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      if (window.openai?.requestDisplayMode) {
+        await window.openai.requestDisplayMode({ mode: "fullscreen" });
+        return;
+      }
+      await window.webplus?.requestDisplayMode?.({ mode: "fullscreen" });
+    } catch (error) {
+      console.error("Failed to request fullscreen display mode", error);
+    }
+  }, []);
+
   return (
     <div className="twilio-call-widget antialiased border border-slate-900/10 rounded-2xl overflow-hidden text-slate-900">
       <div className="twilio-hero px-4 py-4 border-b border-slate-900/10">
@@ -924,12 +942,25 @@ function App() {
             <div className="text-xs uppercase tracking-[0.16em] text-slate-600">Attendance Outreach</div>
             <div className="text-xl font-semibold text-slate-900">Parent Call Assistant</div>
           </div>
-          <div
-            className={`text-xs rounded-full border px-2.5 py-1 font-medium ${statusBadgeClass(
-              effectiveState.status,
-            )}`}
-          >
-            {effectiveState.status}
+          <div className="flex items-center gap-2">
+            {displayMode !== "fullscreen" && (
+              <button
+                type="button"
+                className="twilio-expand-button"
+                onClick={() => void requestFullscreen()}
+                aria-label="Expand widget"
+                title="Expand"
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <div
+              className={`text-xs rounded-full border px-2.5 py-1 font-medium ${statusBadgeClass(
+                effectiveState.status,
+              )}`}
+            >
+              {effectiveState.status}
+            </div>
           </div>
         </div>
 
