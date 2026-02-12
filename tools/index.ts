@@ -4,6 +4,7 @@ import pizzaCarouselTool from "./pizza-carousel";
 import pizzaListTool from "./pizza-list";
 import pizzaMapTool from "./pizza-map";
 import pizzaShopTool from "./pizza-shop";
+import { createSqliteTools } from "./sqlite-tools";
 
 export const toolDefinitions: ToolDefinition[] = [
   pizzaMapTool,
@@ -11,4 +12,5 @@ export const toolDefinitions: ToolDefinition[] = [
   pizzaAlbumsTool,
   pizzaListTool,
   pizzaShopTool,
+  ...createSqliteTools(),
 ];
