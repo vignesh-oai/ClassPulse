@@ -43,6 +43,8 @@ type SqliteBridgeManifestResponse = {
 };
 
 const PYTHON_BRIDGE = String.raw`
+from __future__ import annotations
+
 import html
 import json
 import re
@@ -63,7 +65,9 @@ def _load_metadata(path: str | None):
     if not metadata_path.exists():
         raise FileNotFoundError(f"Metadata file not found: {metadata_path}")
     if yaml is None:
-        raise RuntimeError("pyyaml is required to load metadata files.")
+        # Keep bridge functional even when optional YAML dependency is missing.
+        # In that case we skip metadata-driven catalogs/canned queries.
+        return {}
     payload = yaml.safe_load(metadata_path.read_text(encoding="utf-8")) or {}
     return payload if isinstance(payload, dict) else {}
 
