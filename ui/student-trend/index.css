@@ -1,0 +1,204 @@
+.student-trend-shell {
+  --trend-bg-1: #f3f9f8;
+  --trend-bg-2: #fef6ed;
+  --trend-surface: rgba(255, 255, 255, 0.76);
+  --trend-teal: #0f766e;
+  --trend-teal-soft: #14b8a6;
+  --trend-orange: #ea580c;
+  --trend-ink: #102020;
+  --trend-muted: rgba(16, 32, 32, 0.68);
+  font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+  color: var(--trend-ink);
+  border: 1px solid rgba(10, 42, 39, 0.14);
+  border-radius: 24px;
+  padding: 20px;
+  background:
+    radial-gradient(1200px 600px at 12% -30%, rgba(20, 184, 166, 0.2), transparent 65%),
+    radial-gradient(900px 600px at 100% 0%, rgba(249, 115, 22, 0.15), transparent 58%),
+    linear-gradient(145deg, var(--trend-bg-1), var(--trend-bg-2));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 18px 45px rgba(22, 36, 35, 0.08);
+}
+
+.student-trend-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.student-trend-kicker {
+  margin: 0;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--trend-muted);
+}
+
+.student-trend-title {
+  margin: 2px 0 0;
+  font-size: clamp(24px, 3.5vw, 34px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.student-trend-pill {
+  background: rgba(15, 118, 110, 0.14);
+  border: 1px solid rgba(15, 118, 110, 0.25);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.student-trend-summary {
+  margin-top: 16px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.student-trend-metric {
+  border-radius: 14px;
+  padding: 12px 13px;
+  background: var(--trend-surface);
+  border: 1px solid rgba(14, 42, 35, 0.1);
+  backdrop-filter: blur(6px);
+}
+
+.student-trend-metric-label {
+  margin: 0;
+  color: var(--trend-muted);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.student-trend-metric-value {
+  margin: 6px 0 0;
+  font-size: clamp(20px, 2.6vw, 27px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+
+.student-trend-legend {
+  margin-top: 16px;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 12px;
+  color: var(--trend-muted);
+}
+
+.student-trend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 7px;
+  vertical-align: middle;
+}
+
+.student-trend-dot-attendance {
+  background: linear-gradient(45deg, #14b8a6, #0891b2);
+}
+
+.student-trend-dot-grade {
+  background: linear-gradient(45deg, #f97316, #ef4444);
+}
+
+.student-trend-correlation {
+  margin-left: auto;
+}
+
+.student-trend-chart-wrap {
+  margin-top: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(20, 36, 34, 0.1);
+  background: rgba(255, 255, 255, 0.66);
+  overflow: hidden;
+}
+
+.student-trend-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 250px;
+}
+
+.student-trend-gridline {
+  stroke: rgba(16, 32, 32, 0.1);
+  stroke-width: 1;
+}
+
+.student-trend-axis-label {
+  fill: rgba(16, 32, 32, 0.66);
+  font-size: 11px;
+}
+
+.student-trend-month {
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.student-trend-area {
+  fill: url(#attendanceAreaFill);
+}
+
+.student-trend-line {
+  fill: none;
+  stroke-width: 3.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1200;
+  stroke-dashoffset: 1200;
+  animation: trend-draw 1.3s ease forwards;
+}
+
+.student-trend-line-attendance {
+  stroke: url(#attendanceStroke);
+}
+
+.student-trend-line-grade {
+  stroke: url(#gradeStroke);
+  animation-delay: 0.12s;
+}
+
+.student-trend-node {
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.student-trend-node-attendance {
+  fill: var(--trend-teal-soft);
+}
+
+.student-trend-node-grade {
+  fill: var(--trend-orange);
+}
+
+@keyframes trend-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .student-trend-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .student-trend-shell {
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  .student-trend-correlation {
+    margin-left: 0;
+  }
+}

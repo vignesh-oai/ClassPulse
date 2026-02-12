@@ -24,6 +24,19 @@ export type ClassPulseRosterPayload = {
   summary: ClassPulseRosterSummary;
 };
 
+export type ClassPulseTrendPoint = {
+  period: string;
+  periodKey: string;
+  attendancePct: number;
+  gradeScore: number;
+};
+
+export type ClassPulseStudentTrend = {
+  studentId: number;
+  studentName: string;
+  points: ClassPulseTrendPoint[];
+};
+
 export const CLASS_PULSE_DB_PATH = path.resolve(
   process.cwd(),
   "samples/sqlite/class-pulse.db",
@@ -80,6 +93,64 @@ const REMOVE_STUDENT_QUERY = `
   WHERE id = :studentId
 `;
 
+const STUDENT_LOOKUP_QUERY = `
+  SELECT
+    id,
+    first_name AS firstName,
+    last_name AS lastName
+  FROM students
+  WHERE id = :studentId
+    AND is_active = 1
+  LIMIT 1
+`;
+
+const STUDENT_TREND_QUERY = `
+  WITH RECURSIVE months(offset, month_start) AS (
+    SELECT
+      0,
+      date('now', 'start of month', printf('-%d months', :months - 1))
+    UNION ALL
+    SELECT
+      offset + 1,
+      date(month_start, '+1 month')
+    FROM months
+    WHERE offset + 1 < :months
+  ),
+  attendance_by_month AS (
+    SELECT
+      strftime('%Y-%m', class_date) AS periodKey,
+      ROUND(
+        100.0 * SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) / COUNT(*),
+        1
+      ) AS attendancePct
+    FROM attendance
+    WHERE student_id = :studentId
+      AND class_date >= date('now', 'start of month', printf('-%d months', :months - 1))
+      AND class_date < date('now', 'start of month', '+1 month')
+    GROUP BY strftime('%Y-%m', class_date)
+  ),
+  grades_by_month AS (
+    SELECT
+      grade_month AS periodKey,
+      ROUND(AVG(grade_score), 1) AS gradeScore
+    FROM student_grades
+    WHERE student_id = :studentId
+      AND grade_month >= strftime('%Y-%m', date('now', 'start of month', printf('-%d months', :months - 1)))
+      AND grade_month <= strftime('%Y-%m', date('now', 'start of month'))
+    GROUP BY grade_month
+  )
+  SELECT
+    strftime('%Y-%m', months.month_start) AS periodKey,
+    COALESCE(attendance_by_month.attendancePct, 0) AS attendancePct,
+    COALESCE(grades_by_month.gradeScore, 0) AS gradeScore
+  FROM months
+  LEFT JOIN attendance_by_month
+    ON attendance_by_month.periodKey = strftime('%Y-%m', months.month_start)
+  LEFT JOIN grades_by_month
+    ON grades_by_month.periodKey = strftime('%Y-%m', months.month_start)
+  ORDER BY months.month_start
+`;
+
 function decodeHtml(value: string): string {
   return value
     .replace(/&amp;/g, "&")
@@ -121,6 +192,18 @@ function coerceAttendanceStatus(value: string): AttendanceStatus {
     return value;
   }
   return "unmarked";
+}
+
+function normalizeMonthLabel(periodKey: string): string {
+  const parts = periodKey.split("-");
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return periodKey;
+  }
+  return new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(
+    new Date(Date.UTC(year, month - 1, 1)),
+  );
 }
 
 export function getClassPulseRoster(classDate?: string): {
@@ -218,6 +301,74 @@ export function removeClassPulseStudent(args: { studentId: number }) {
     write: true,
     parameters: { studentId },
   });
+}
+
+export function getClassPulseStudentTrend(args: {
+  studentId: number;
+  months?: number;
+}): ClassPulseStudentTrend {
+  const studentId = Number(args.studentId);
+  if (!Number.isFinite(studentId) || studentId <= 0) {
+    throw new Error("studentId must be a positive number.");
+  }
+
+  const months = Math.max(3, Math.min(24, Math.floor(args.months ?? 9)));
+  const studentLookup = runSqliteQuery(STUDENT_LOOKUP_QUERY, {
+    sqliteFile: CLASS_PULSE_DB_PATH,
+    parameters: { studentId },
+    write: false,
+  });
+  const studentRows = parseHtmlRows(studentLookup.text);
+  if (studentRows.length < 2) {
+    throw new Error(`Student ${studentId} was not found in the active roster.`);
+  }
+
+  const studentHeaders = studentRows[0].map((value) => value.toLowerCase());
+  const student = studentRows[1];
+  const idxFirstName = studentHeaders.indexOf("firstname");
+  const idxLastName = studentHeaders.indexOf("lastname");
+  const studentName = `${student[idxFirstName] ?? ""} ${student[idxLastName] ?? ""}`.trim();
+
+  const trendResult = runSqliteQuery(STUDENT_TREND_QUERY, {
+    sqliteFile: CLASS_PULSE_DB_PATH,
+    parameters: {
+      studentId,
+      months,
+    },
+    write: false,
+  });
+  const trendRows = parseHtmlRows(trendResult.text);
+  if (trendRows.length < 2) {
+    return {
+      studentId,
+      studentName: studentName || `Student ${studentId}`,
+      points: [],
+    };
+  }
+
+  const trendHeaders = trendRows[0].map((value) => value.toLowerCase());
+  const idxPeriodKey = trendHeaders.indexOf("periodkey");
+  const idxAttendance = trendHeaders.indexOf("attendancepct");
+  const idxGrade = trendHeaders.indexOf("gradescore");
+
+  const points: ClassPulseTrendPoint[] = trendRows.slice(1).map((row) => {
+    const periodKey = row[idxPeriodKey] ?? "";
+    const attendancePct = Number(row[idxAttendance] ?? 0);
+    const gradeScore = Number(row[idxGrade] ?? 0);
+
+    return {
+      periodKey,
+      period: normalizeMonthLabel(periodKey),
+      attendancePct: Number.isFinite(attendancePct) ? attendancePct : 0,
+      gradeScore: Number.isFinite(gradeScore) ? gradeScore : 0,
+    };
+  });
+
+  return {
+    studentId,
+    studentName: studentName || `Student ${studentId}`,
+    points,
+  };
 }
 
 export function summarizeRoster(students: ClassPulseStudent[]): ClassPulseRosterSummary {
