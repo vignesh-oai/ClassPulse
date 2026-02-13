@@ -132,6 +132,7 @@ const DEFAULT_PARENT_NUMBER_LABEL = "Jerry's number on file";
 const DEFAULT_REASON_SUMMARY = "Attendance follow-up call about recent absences.";
 const WAVE_BAR_COUNT = 28;
 const EMPTY_WAVE_HISTORY = Array.from({ length: WAVE_BAR_COUNT }, () => 0);
+const TRANSCRIPT_SCROLL_FOLLOW_THRESHOLD_PX = 28;
 
 const DEFAULT_TOOL_OUTPUT: WidgetToolOutput = {
   sessionId: null,
@@ -629,12 +630,33 @@ function App() {
   const statusRef = useRef<CallStatus>(effectiveState.status);
   const stateRef = useRef<CallWidgetState>(effectiveState);
   const summaryRequestedSessionRef = useRef<string | null>(null);
+  const transcriptContainerRef = useRef<HTMLDivElement | null>(null);
+  const followTranscriptRef = useRef(true);
 
   useEffect(() => {
     lastSeqRef.current = effectiveState.lastSeq;
     statusRef.current = effectiveState.status;
     stateRef.current = effectiveState;
   }, [effectiveState]);
+
+  const onTranscriptScroll = useCallback(() => {
+    const container = transcriptContainerRef.current;
+    if (!container) {
+      return;
+    }
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    followTranscriptRef.current =
+      distanceFromBottom <= TRANSCRIPT_SCROLL_FOLLOW_THRESHOLD_PX;
+  }, []);
+
+  useEffect(() => {
+    const container = transcriptContainerRef.current;
+    if (!container || !followTranscriptRef.current) {
+      return;
+    }
+    container.scrollTop = container.scrollHeight;
+  }, [effectiveState.transcript, effectiveState.status]);
 
   const waveBars = useMemo(() => {
     if (effectiveState.waveHistory.length >= WAVE_BAR_COUNT) {
@@ -1062,7 +1084,11 @@ function App() {
           <MessageSquareText className="h-4 w-4" />
           <span>Live Transcript</span>
         </div>
-        <div className="twilio-call-transcript max-h-72 overflow-auto rounded-xl border border-slate-900/10 bg-white px-3 py-2 space-y-2">
+        <div
+          ref={transcriptContainerRef}
+          onScroll={onTranscriptScroll}
+          className="twilio-call-transcript max-h-72 overflow-auto rounded-xl border border-slate-900/10 bg-white px-3 py-2 space-y-2"
+        >
           {effectiveState.transcript.length === 0 && (
             <p className="text-sm text-slate-500">
               Transcript will stream here once the parent call starts.

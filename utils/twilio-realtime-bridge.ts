@@ -141,6 +141,27 @@ function assistantItemId(event: Record<string, unknown>): string {
   return `assistant_${responseId}_${outputIndex}`;
 }
 
+function responseIdFromEvent(event: Record<string, unknown>): string | null {
+  const explicitId = asString(event.response_id);
+  if (explicitId) {
+    return explicitId;
+  }
+  const response = asRecord(event.response);
+  return asString(response?.id);
+}
+
+function base64DecodedByteLength(encoded: string): number {
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  const decoded = Math.floor((encoded.length * 3) / 4) - padding;
+  return decoded > 0 ? decoded : 0;
+}
+
+function pcmuMillisecondsFromBase64(encoded: string): number {
+  const bytes = base64DecodedByteLength(encoded);
+  // PCMU is 8kHz with 8-bit samples => 8 bytes ~= 1 ms.
+  return bytes / 8;
+}
+
 function pickTranscriptText(
   event: Record<string, unknown>,
   candidates: string[],
@@ -228,6 +249,15 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
   let realtimeOutboundBytes = 0;
   let twilioAudioLevelFrames = 0;
   let realtimeAudioLevelFrames = 0;
+  let activeResponseId: string | null = null;
+  let activeAssistantItemId: string | null = null;
+  let activeAssistantContentIndex = 0;
+  let activeAssistantAudioMsSent = 0;
+  let activeAssistantAudioStartedAtMs: number | null = null;
+  let assistantOutputActive = false;
+  let interruptControlEventCounter = 0;
+  let lastInterruptControlEventSentAtMs: number | null = null;
+  const pendingInterruptControlEventIds = new Set<string>();
   let recipientDeltaEvents = 0;
   let recipientFinalEvents = 0;
   let assistantDeltaEvents = 0;
@@ -256,6 +286,110 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
     } else if (options.twilioSocket.readyState === WS_CONNECTING) {
       options.twilioSocket.terminate();
     }
+  };
+
+  const clearAssistantPlaybackTracking = () => {
+    activeAssistantItemId = null;
+    activeAssistantContentIndex = 0;
+    activeAssistantAudioMsSent = 0;
+    activeAssistantAudioStartedAtMs = null;
+    assistantOutputActive = false;
+  };
+
+  const sendInterruptControlEvent = (payload: Record<string, unknown>) => {
+    const eventId = `interrupt_${Date.now()}_${String(interruptControlEventCounter++)}`;
+    pendingInterruptControlEventIds.add(eventId);
+    lastInterruptControlEventSentAtMs = Date.now();
+    sendJson(realtimeSocket, {
+      event_id: eventId,
+      ...payload,
+    });
+  };
+
+  const isRecoverableInterruptError = (
+    errorRecord: Record<string, unknown> | null,
+    event: Record<string, unknown>,
+  ) => {
+    const errorEventId = asString(errorRecord?.event_id) ?? asString(event.event_id);
+    if (errorEventId && pendingInterruptControlEventIds.has(errorEventId)) {
+      pendingInterruptControlEventIds.delete(errorEventId);
+      return true;
+    }
+
+    const errorCode = asString(errorRecord?.code);
+    const message = (
+      asString(errorRecord?.message) ??
+      asString(event.message) ??
+      ""
+    ).toLowerCase();
+    const sentInterruptRecently =
+      lastInterruptControlEventSentAtMs != null &&
+      Date.now() - lastInterruptControlEventSentAtMs < 2500;
+    if (
+      sentInterruptRecently &&
+      (errorCode === "response_cancel_not_active" ||
+        errorCode === "conversation_item_not_found" ||
+        errorCode === "conversation_item_already_completed")
+    ) {
+      return true;
+    }
+    return (
+      errorCode === "invalid_request_error" &&
+      (message.includes("response.cancel") || message.includes("conversation.item.truncate"))
+    );
+  };
+
+  const estimatePlayedAssistantAudioMs = () => {
+    if (!activeAssistantAudioStartedAtMs) {
+      return activeAssistantAudioMsSent;
+    }
+    const elapsedMs = Math.max(0, Date.now() - activeAssistantAudioStartedAtMs);
+    return Math.min(activeAssistantAudioMsSent, elapsedMs);
+  };
+
+  const interruptAssistantPlayback = (triggerEventType: string) => {
+    const hasTrackedAssistantAudio = assistantOutputActive && activeAssistantAudioMsSent > 0;
+    const canTruncateAssistantAudio =
+      assistantOutputActive && Boolean(activeAssistantItemId) && hasTrackedAssistantAudio;
+    if (!assistantOutputActive && !hasTrackedAssistantAudio) {
+      return;
+    }
+
+    if (twilioStreamSid) {
+      sendJson(options.twilioSocket, {
+        event: "clear",
+        streamSid: twilioStreamSid,
+      });
+    }
+
+    if (assistantOutputActive && (activeResponseId || hasTrackedAssistantAudio)) {
+      sendInterruptControlEvent({
+        type: "response.cancel",
+      });
+    }
+
+    if (activeAssistantItemId && canTruncateAssistantAudio) {
+      sendInterruptControlEvent({
+        type: "conversation.item.truncate",
+        item_id: activeAssistantItemId,
+        content_index: activeAssistantContentIndex,
+        audio_end_ms: Math.max(0, Math.floor(estimatePlayedAssistantAudioMs())),
+      });
+    }
+
+    logInfo("Interrupted assistant playback after user speech detection", {
+      sessionId: options.sessionId,
+      triggerEventType,
+      responseId: activeResponseId,
+      assistantItemId: activeAssistantItemId,
+      assistantContentIndex: activeAssistantContentIndex,
+      assistantAudioMsSent: Math.floor(activeAssistantAudioMsSent),
+      assistantAudioMsEstimatedPlayed: Math.floor(estimatePlayedAssistantAudioMs()),
+      twilioStreamSid,
+    });
+
+    activeResponseId = null;
+    clearAssistantPlaybackTracking();
   };
 
   const handleTwilioStartEvent = (payload: Record<string, unknown>) => {
@@ -299,6 +433,7 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
             },
             turn_detection: {
               type: "server_vad",
+              interrupt_response: true,
             },
             transcription: {
               model: transcriptionModel,
@@ -350,6 +485,16 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
         asString(errorRecord?.message) ??
         asString(event.message) ??
         "OpenAI Realtime returned an unknown error event.";
+      if (isRecoverableInterruptError(errorRecord, event)) {
+        logWarn("Ignoring recoverable Realtime interruption control error", {
+          sessionId: options.sessionId,
+          eventType,
+          errorMessage,
+          errorCode: asString(errorRecord?.code),
+          errorEventId: asString(errorRecord?.event_id) ?? asString(event.event_id),
+        });
+        return;
+      }
       logError("Realtime error event", {
         sessionId: options.sessionId,
         errorMessage,
@@ -357,8 +502,35 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
         errorCode: asString(errorRecord?.code),
         rawEvent: event,
       });
+      activeResponseId = null;
+      clearAssistantPlaybackTracking();
       updateCallStatus(options.sessionId, "failed", errorMessage);
       closeTwilio();
+      return;
+    }
+
+    if (eventType === "response.created") {
+      activeResponseId = responseIdFromEvent(event);
+      return;
+    }
+
+    if (eventType === "response.output_audio.done") {
+      clearAssistantPlaybackTracking();
+      return;
+    }
+
+    if (eventType === "response.done") {
+      activeResponseId = null;
+      clearAssistantPlaybackTracking();
+      return;
+    }
+
+    if (eventType === "input_audio_buffer.speech_started") {
+      interruptAssistantPlayback(eventType);
+      logInfo("Realtime lifecycle event", {
+        sessionId: options.sessionId,
+        eventType,
+      });
       return;
     }
 
@@ -367,6 +539,24 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
       if (!payload || !twilioStreamSid) {
         return;
       }
+      assistantOutputActive = true;
+      const itemId = asString(event.item_id);
+      const contentIndex = asNumber(event.content_index) ?? 0;
+      const responseId = responseIdFromEvent(event);
+      if (responseId) {
+        activeResponseId = responseId;
+      }
+      if (itemId && (activeAssistantItemId !== itemId || activeAssistantContentIndex !== contentIndex)) {
+        activeAssistantItemId = itemId;
+        activeAssistantContentIndex = contentIndex;
+        activeAssistantAudioMsSent = 0;
+        activeAssistantAudioStartedAtMs = Date.now();
+      }
+      if (!activeAssistantAudioStartedAtMs) {
+        activeAssistantAudioStartedAtMs = Date.now();
+      }
+      activeAssistantAudioMsSent += pcmuMillisecondsFromBase64(payload);
+
       sendJson(options.twilioSocket, {
         event: "media",
         streamSid: twilioStreamSid,
@@ -506,7 +696,7 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
       eventType === "session.updated" ||
       eventType === "response.created" ||
       eventType === "response.done" ||
-      eventType === "input_audio_buffer.speech_started" ||
+      eventType === "response.output_audio.done" ||
       eventType === "input_audio_buffer.speech_stopped"
     ) {
       logInfo("Realtime lifecycle event", {
@@ -551,6 +741,8 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
       "failed",
       `OpenAI Realtime websocket error: ${message}`,
     );
+    activeResponseId = null;
+    clearAssistantPlaybackTracking();
     closeTwilio();
   });
 
@@ -585,6 +777,8 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
         );
       }
     }
+    activeResponseId = null;
+    clearAssistantPlaybackTracking();
     closeTwilio();
   });
 
@@ -668,6 +862,8 @@ export function bridgeTwilioToRealtime(options: BridgeOptions): void {
         reason,
         stopPayload: stop ?? null,
       });
+      activeResponseId = null;
+      clearAssistantPlaybackTracking();
       updateCallStatus(options.sessionId, "completed", reason);
       closeRealtime();
       return;
