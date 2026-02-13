@@ -35,7 +35,7 @@ function describeSignal(attendanceDelta: number, gradeDelta: number): string {
     return "Upward momentum";
   }
   if (attendanceDelta < -1.2 && gradeDelta < -1.2) {
-    return "Compounding decline";
+    return "Concerning decline";
   }
   if (gradeDelta > 1.5 && attendanceDelta <= 1.2) {
     return "Grades recovering";

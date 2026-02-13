@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import { useWidgetProps } from "../hooks/use-widget-props";
-import { CalendarDays, Check, PlusCircle, Trash2, X } from "lucide-react";
+import { CalendarDays, Check, LineChart, Loader2, PlusCircle, Trash2, X } from "lucide-react";
 
 type ClassPulseStudent = {
   id: number;
@@ -148,6 +148,7 @@ function App() {
     normalizePayload(toolPayload),
   );
   const [isBusyId, setIsBusyId] = useState<number | null>(null);
+  const [isTrendBusyId, setIsTrendBusyId] = useState<number | null>(null);
   const [isBulkRemoving, setIsBulkRemoving] = useState(false);
   const [isRemovalMode, setIsRemovalMode] = useState(false);
   const [selectedRemovalIds, setSelectedRemovalIds] = useState<Set<number>>(new Set());
@@ -230,6 +231,31 @@ function App() {
       }
     },
     [callTool, isRemovalMode, payload.classDate],
+  );
+
+  const handleShowStudentTrend = useCallback(
+    async (student: ClassPulseStudent) => {
+      setIsTrendBusyId(student.id);
+      setError(null);
+      try {
+        if (typeof openAi?.sendFollowUpMessage !== "function") {
+          throw new Error("openai.sendFollowUpMessage is not available in this host.");
+        }
+        const studentName = `${student.firstName} ${student.lastName}`.trim();
+        await openAi.sendFollowUpMessage({
+          prompt: `Show me ${studentName} Student Attendance vs Grades Trend. Use the student-trend tool with studentId ${student.id} and render its widget.`,
+        });
+      } catch (error_) {
+        setError(
+          error_ instanceof Error
+            ? error_.message
+            : "Failed to load student trend.",
+        );
+      } finally {
+        setIsTrendBusyId(null);
+      }
+    },
+    [openAi],
   );
 
   const addStudent = useCallback(
@@ -543,6 +569,24 @@ function App() {
                           </span>
                         )}
                       </Button>
+                      {student.status === "absent" ? (
+                        <Button
+                          color="secondary"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleShowStudentTrend(student)}
+                          disabled={isTrendBusyId === student.id}
+                          aria-label={`Show me ${student.firstName} ${student.lastName} Student Attendance vs Grades Trend`}
+                          title={`Show me ${student.firstName} ${student.lastName} Student Attendance vs Grades Trend`}
+                          className="border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                        >
+                          {isTrendBusyId === student.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <LineChart className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

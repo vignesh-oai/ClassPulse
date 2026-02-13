@@ -12,6 +12,7 @@ import {
   type ReadResourceRequest,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { WidgetCatalog } from "./widget-catalog";
+import { logError, logInfo, logWarn } from "./call-debug";
 
 type CreateMcpServerOptions = {
   name: string;
@@ -74,21 +75,51 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
   server.setRequestHandler(
     CallToolRequestSchema,
     async (request: CallToolRequest) => {
+      const startedAt = Date.now();
+      const toolName = request.params.name;
+      const rawArguments = request.params.arguments ?? {};
+      const argumentKeys =
+        rawArguments && typeof rawArguments === "object"
+          ? Object.keys(rawArguments)
+          : [];
+
+      logInfo("MCP tool call received", {
+        toolName,
+        argumentKeys,
+      });
+
       const invocation = options.widgetCatalog.getToolInvocation(
-        request.params.name,
+        toolName,
       );
 
       if (!invocation) {
-        throw new Error(`Unknown tool: ${request.params.name}`);
+        logWarn("MCP tool call rejected: unknown tool", { toolName });
+        throw new Error(`Unknown tool: ${toolName}`);
       }
 
-      const input = invocation.tool.input.parse(request.params.arguments ?? {});
-      const result = await invocation.tool.handler(input);
+      try {
+        const input = invocation.tool.input.parse(rawArguments);
+        const result = await invocation.tool.handler(input);
 
-      return {
-        ...result,
-        _meta: invocation.meta,
-      };
+        logInfo("MCP tool call completed", {
+          toolName,
+          durationMs: Date.now() - startedAt,
+          contentItems: result.content.length,
+          structuredKeys: Object.keys(result.structuredContent ?? {}),
+        });
+
+        return {
+          ...result,
+          _meta: invocation.meta,
+        };
+      } catch (error) {
+        logError("MCP tool call failed", {
+          toolName,
+          durationMs: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
     },
   );
 
