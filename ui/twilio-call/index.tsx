@@ -543,18 +543,18 @@ function applyLogEvent(state: CallWidgetState, event: CallLogEvent): CallWidgetS
 
 function statusBadgeClass(status: CallStatus): string {
   if (status === "in-progress") {
-    return "bg-emerald-500/15 text-emerald-700 border-emerald-700/20";
+    return "bg-emerald-50 text-emerald-700 border-emerald-200";
   }
   if (status === "ringing" || status === "queued") {
-    return "bg-amber-500/15 text-amber-700 border-amber-700/20";
+    return "bg-amber-50 text-amber-700 border-amber-200";
   }
   if (status === "completed") {
-    return "bg-slate-500/15 text-slate-700 border-slate-700/20";
+    return "bg-sky-50 text-sky-700 border-sky-200";
   }
   if (status === "failed") {
-    return "bg-rose-500/15 text-rose-700 border-rose-700/20";
+    return "bg-rose-50 text-rose-700 border-rose-200";
   }
-  return "bg-sky-500/15 text-sky-700 border-sky-700/20";
+  return "bg-white text-slate-700 border-slate-200";
 }
 
 function transcriptSpeakerLabel(
@@ -935,7 +935,7 @@ function App() {
   }, []);
 
   return (
-    <div className="twilio-call-widget antialiased border border-slate-900/10 rounded-2xl overflow-hidden text-slate-900">
+    <div className="class-pulse-theme twilio-call-widget antialiased w-full max-w-4xl mx-auto rounded-2xl overflow-hidden border">
       <div className="twilio-hero px-4 py-4 border-b border-slate-900/10">
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>

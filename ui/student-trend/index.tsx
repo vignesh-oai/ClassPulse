@@ -98,7 +98,7 @@ function App() {
   const relationship = analysis?.relationship ?? 0;
 
   return (
-    <div className="student-trend-shell">
+    <div className="class-pulse-theme student-trend-shell">
       <div className="student-trend-header">
         <div>
           <p className="student-trend-kicker">Student trajectory</p>
@@ -154,16 +154,16 @@ function App() {
         >
           <defs>
             <linearGradient id="attendanceAreaFill" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="rgba(44, 189, 171, 0.32)" />
-              <stop offset="100%" stopColor="rgba(44, 189, 171, 0.02)" />
+              <stop offset="0%" stopColor="color-mix(in oklab, var(--cp-present-accent) 35%, transparent)" />
+              <stop offset="100%" stopColor="color-mix(in oklab, var(--cp-present-accent) 4%, transparent)" />
             </linearGradient>
             <linearGradient id="attendanceStroke" x1="0" x2="1" y1="0" y2="0">
-              <stop offset="0%" stopColor="#14b8a6" />
-              <stop offset="100%" stopColor="#0891b2" />
+              <stop offset="0%" stopColor="var(--cp-present-accent)" />
+              <stop offset="100%" stopColor="#2f927d" />
             </linearGradient>
             <linearGradient id="gradeStroke" x1="0" x2="1" y1="0" y2="0">
-              <stop offset="0%" stopColor="#f97316" />
-              <stop offset="100%" stopColor="#ef4444" />
+              <stop offset="0%" stopColor="var(--cp-absent-accent)" />
+              <stop offset="100%" stopColor="#bf4058" />
             </linearGradient>
           </defs>
 

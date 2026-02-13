@@ -54,7 +54,14 @@ const ROSTER_QUERY = `
     ON a.student_id = s.id
     AND a.class_date = :classDate
   WHERE s.is_active = 1
-  ORDER BY s.last_name COLLATE NOCASE, s.first_name COLLATE NOCASE
+  ORDER BY
+    CASE
+      WHEN lower(trim(s.first_name || ' ' || s.last_name)) = 'sam altman' THEN 0
+      WHEN lower(trim(s.first_name || ' ' || s.last_name)) = 'chelsea hu' THEN 1
+      ELSE 2
+    END,
+    s.last_name COLLATE NOCASE,
+    s.first_name COLLATE NOCASE
 `;
 
 const UPSERT_ATTENDANCE_QUERY = `
