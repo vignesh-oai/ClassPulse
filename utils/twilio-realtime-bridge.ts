@@ -20,7 +20,7 @@ import { getRealtimeSystemPrompt } from "./realtime-prompt-template";
 
 const DEFAULT_REALTIME_MODEL = "gpt-realtime";
 const DEFAULT_REALTIME_VOICE = "marin";
-const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
+const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
 const WS_OPEN = 1;
 const WS_CONNECTING = 0;
 const PCMU_MAX_ABS_SAMPLE = 32124;
