@@ -36,7 +36,7 @@ export default defineTool({
   name: "call-parent",
   title: "Open Parent Call Panel",
   description:
-    "Open the teacher call panel to contact a student's parent about persistent absence and monitor a live transcript. Always pass `reasonSummary`, and include `contextFromChat` plus `absenceStats` whenever available from the chat.",
+    "Render and return the parent call panel preview state only. This tool does not place a phone call or contact the parent; it only prepares UI data. Always pass `reasonSummary`, and include `contextFromChat` plus `absenceStats` whenever available from the chat.",
   annotations: {
     readOnlyHint: true,
     openWorldHint: false,
@@ -64,7 +64,7 @@ export default defineTool({
       content: [
         {
           type: "text",
-          text: `Call panel ready for ${panel.parentName} (${panel.parentRelationship}) regarding ${panel.studentName}'s attendance. Reason: ${panel.reasonSummary}`,
+          text: "Call panel ready. No outbound call has been started yet.",
         },
       ],
       structuredContent: panel,
